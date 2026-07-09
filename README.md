@@ -2,7 +2,7 @@
 
 [中文](./README.zh-CN.md) · **English**
 
-**Version 0.1.3** · see [CHANGELOG.md](./CHANGELOG.md) for release history
+**Version 0.2.0** · see [CHANGELOG.md](./CHANGELOG.md) for release history
 
 Records real user interactions on a page and turns them into a step array
 in exactly the shape [page-pilot](https://github.com/jyy1082/page-pilot)'s
@@ -78,6 +78,21 @@ const recorder = new PagePilotRecorder({
 | Checkbox / radio | `{ type: 'check', target, checked }` |
 | Non-character keys (Enter, Escape, Tab, arrows, etc.) and any key combined with a modifier (Ctrl+A, Cmd+S, etc.) | `{ type: 'pressKey', target, key, options }` |
 | Scrolling a window or a container, debounced until it settles | `{ type: 'scroll', target, options }` (uses `{ to: 'top' \| 'bottom' }` when it lands on an edge, `{ amount }` otherwise) |
+| Opening a custom dropdown/menu and picking an option inside it | `{ type: 'chooseOption', target, option, options: { waitAfterOpen } }` — merged automatically, see below |
+
+### Custom dropdown detection (chooseOption)
+
+A click that reveals something (a `MutationObserver` sees a DOM change —
+whether a `style`/`class`/`hidden` change on an existing hidden menu, or
+brand-new nodes), followed immediately by a click on something inside what
+just appeared, gets merged into a single `chooseOption` step instead of two
+separate `click` steps — as long as nothing else was recorded in between
+and the second click follows within `chooseOptionMergeWindow` (default
+4000ms). The gap between the two real clicks is captured as
+`options.waitAfterOpen`, so replay times it the same way it actually happened.
+
+This is a heuristic, not a certainty — set `mergeChooseOption: false` if you'd
+rather always get two plain `click` steps and merge them yourself.
 
 ## What does NOT get recorded (by design)
 
@@ -95,9 +110,6 @@ const recorder = new PagePilotRecorder({
 - **`hover`/`unhover`, `dragTo`** — real hover and drag gestures aren't
   reliably distinguishable from incidental mouse movement without a lot of
   false-positive risk, so v1 leaves these out. Add them by hand.
-- **`chooseOption`** — a custom dropdown gets recorded as two separate
-  `click` steps (open the menu, click the option), which plays back
-  correctly, just without the more semantic `chooseOption()` call.
 
 Recording is a starting point, not a finished script — review the output,
 especially anything marked `fragile: true` (see below), before relying on
@@ -110,14 +122,17 @@ of these first produces a selector that uniquely matches the element:
 
 1. `id`
 2. `data-testid` / `data-cy` / `data-test` / `data-qa`
-3. `aria-label`
-4. `name` attribute
-5. Non-utility class names (filters out Tailwind-style utility classes like
+3. Any other `data-*` attribute (e.g. `data-value` on a custom dropdown
+   option) — the app's own JS usually reads these, so they tend to be
+   stable even though they weren't put there specifically for testing
+4. `aria-label`
+5. `name` attribute
+6. Non-utility class names (filters out Tailwind-style utility classes like
    `p-2`, `hover:bg-blue-500`, minified single-letter classes, etc.)
-6. A structural `nth-of-type` path as a last resort, rooted at the nearest
+7. A structural `nth-of-type` path as a last resort, rooted at the nearest
    ancestor with an `id` if one exists
 
-Steps that had to fall back to option 6 carry a `fragile: true` flag —
+Steps that had to fall back to option 7 carry a `fragile: true` flag —
 these are the ones most likely to break if the page's markup changes even
 slightly. If you see one, it's usually worth adding a `data-testid` to that
 element and re-recording, rather than shipping the structural path as-is.
@@ -145,6 +160,8 @@ const { selector, fragile } = generateSelector(document.querySelector('.some-el'
 new PagePilotRecorder({
   ui: true,               // show the floating start/stop/copy panel
   scrollSettleDelay: 250, // ms of no scroll activity before a scroll step is recorded
+  mergeChooseOption: true, // detect trigger-click + option-click into one chooseOption step
+  chooseOptionMergeWindow: 4000, // max ms between the two clicks for them to still merge
   onStep: (step) => {},   // called every time a step is recorded
 })
 ```

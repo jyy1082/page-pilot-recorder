@@ -3,6 +3,29 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] — Custom dropdown detection (chooseOption)
+
+### Added
+- Automatic `chooseOption` merging: a click that reveals something (via a
+  `MutationObserver` on style/class/hidden attribute changes or new nodes),
+  immediately followed by a click on something inside what just appeared —
+  with nothing else recorded in between, within `chooseOptionMergeWindow`
+  (default 4000ms) — now merges into one `{ type: 'chooseOption', target,
+  option, options: { waitAfterOpen } }` step instead of two separate
+  `click` steps. Set `mergeChooseOption: false` to always get two plain
+  clicks instead.
+- `generateSelector()` now also tries any other `data-*` attribute (not
+  just `data-testid`/`data-cy`/`data-test`/`data-qa`) as a selector
+  candidate before falling back further — attributes like `data-value` on
+  a custom dropdown option are usually read by the app's own logic, so
+  they're a meaningfully more stable identifier than a structural fallback,
+  even though they weren't put there specifically for testing.
+- 8 new real-browser test cases covering the merge itself, the two
+  false-positive-avoidance conditions (unrelated clicks, something else
+  recorded in between), and a full record → replay round trip confirming
+  the recorded `chooseOption` step actually works when fed into a real
+  `PagePilot.run()`.
+
 ## [0.1.3]
 
 ### Added

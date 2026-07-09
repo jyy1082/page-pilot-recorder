@@ -169,6 +169,70 @@ async function main() {
     await page.close();
   }
 
+  console.log('=== NEW: chooseOption merge detection (custom dropdown) ===');
+  {
+    const page = await freshPage();
+    await page.click('#plan-trigger'); // opens the menu (display:none -> block)
+    await page.click('.menu-opt[data-value="pro"]'); // picks an option inside it
+    const steps = await stopAndGetSteps(page);
+    check('merges into a single chooseOption step', steps.length === 1 && steps[0].type === 'chooseOption');
+    check('trigger target is correct', steps[0]?.target === '#plan-trigger');
+    check('option selector uses the stable data-value attribute, not a structural fallback',
+      steps[0]?.option === 'div[data-value="pro"]' && !steps[0]?.fragile);
+    check('captures a waitAfterOpen timing hint', typeof steps[0]?.options?.waitAfterOpen === 'number');
+    await page.close();
+  }
+
+  console.log('=== NEW: chooseOption does NOT merge unrelated clicks ===');
+  {
+    const page = await freshPage();
+    await page.click('#submit-btn'); // an ordinary click, nothing opens as a result
+    await page.click('#plan-trigger'); // a second, unrelated click
+    const steps = await stopAndGetSteps(page);
+    check('both stay as separate click steps (no false-positive merge)',
+      steps.length === 2 && steps.every((s) => s.type === 'click'));
+    await page.close();
+  }
+
+  console.log('=== NEW: chooseOption merge is skipped if another step happens in between ===');
+  {
+    const page = await freshPage();
+    await page.click('#plan-trigger'); // opens the menu
+    await page.check('#agree-checkbox'); // an unrelated step happens in between
+    await page.click('.menu-opt[data-value="pro"]');
+    const steps = await stopAndGetSteps(page);
+    check('trigger click stays separate (not merged) since something happened in between',
+      steps.some((s) => s.type === 'click' && s.target === '#plan-trigger'));
+    check('the check step is still there too', steps.some((s) => s.type === 'check'));
+    check('the option click is recorded on its own, not merged', steps.some((s) => s.type === 'click' && s.target?.includes('data-value')));
+    await page.close();
+  }
+
+  console.log('=== NEW: chooseOption round-trip — recorded step actually replays correctly ===');
+  {
+    const page = await freshPage();
+    await page.click('#plan-trigger');
+    await page.click('.menu-opt[data-value="pro"]');
+    const steps = await stopAndGetSteps(page);
+
+    // Reset the trigger's label and close the menu, then replay the exact
+    // recorded step through the real PagePilot playback engine.
+    await page.evaluate(() => {
+      document.getElementById('plan-trigger').textContent = 'Choose a plan';
+      document.getElementById('plan-menu').style.display = 'none';
+    });
+    await page.addScriptTag({ url: '/page-pilot.js', type: 'module' }).catch(() => {});
+    const replayedLabel = await page.evaluate(async (recordedSteps) => {
+      const { PagePilot } = await import('/page-pilot.js');
+      const cursor = new PagePilot({ moveDuration: 5, clickPause: 5 });
+      await cursor.run(recordedSteps);
+      cursor.destroy();
+      return document.getElementById('plan-trigger').textContent;
+    }, steps);
+    check('replaying the recorded chooseOption step actually selects Pro', replayedLabel === 'Pro');
+    await page.close();
+  }
+
   intentionalClose = true;
   await browser.close();
   server.close();

@@ -25,11 +25,29 @@
     <div style="height:1000px;">tall content</div>
   </div>
 
+  <button id="plan-trigger">Choose a plan</button>
+  <div id="plan-menu" style="display:none;">
+    <div class="menu-opt" data-value="basic">Basic</div>
+    <div class="menu-opt" data-value="pro">Pro</div>
+  </div>
+
   <script type="module">
     import { PagePilotRecorder } from '/page-pilot-recorder.js';
     window.__recorder = new PagePilotRecorder({ ui: false });
     document.getElementById('stop-btn').addEventListener('click', () => {
       window.__lastSteps = window.__recorder.stop();
+    });
+
+    const planTrigger = document.getElementById('plan-trigger');
+    const planMenu = document.getElementById('plan-menu');
+    planTrigger.addEventListener('click', () => {
+      planMenu.style.display = planMenu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.querySelectorAll('.menu-opt').forEach((opt) => {
+      opt.addEventListener('click', () => {
+        planTrigger.textContent = opt.textContent;
+        planMenu.style.display = 'none';
+      });
     });
   </script>
 </body>

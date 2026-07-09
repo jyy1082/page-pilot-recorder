@@ -119,6 +119,16 @@ export function generateSelector(el) {
     }
   }
 
+  // Any other data-* attribute is often a stable functional identifier too
+  // (e.g. data-value on a custom dropdown option) — the app's own JS reads
+  // it, so it's unlikely to get renamed casually, unlike a CSS class.
+  const skipDataAttrs = new Set(['data-testid', 'data-cy', 'data-test', 'data-qa', 'data-ppr-ignore']);
+  for (const attr of el.attributes || []) {
+    if (!attr.name.startsWith('data-') || skipDataAttrs.has(attr.name)) continue;
+    const sel = `${el.tagName.toLowerCase()}[${attr.name}="${escapeAttrValue(attr.value)}"]`;
+    if (isUnique(sel)) return { selector: sel, fragile: false };
+  }
+
   const ariaLabel = el.getAttribute('aria-label');
   if (ariaLabel) {
     const sel = `${el.tagName.toLowerCase()}[aria-label="${escapeAttrValue(ariaLabel)}"]`;
@@ -152,6 +162,8 @@ const NON_CHARACTER_KEYS = new Set([
 const DEFAULTS = {
   ui: true, // show a small floating start/stop/copy control panel
   scrollSettleDelay: 250, // ms of no scroll activity before a scroll step is recorded
+  mergeChooseOption: true, // detect trigger-click + option-click into one chooseOption step
+  chooseOptionMergeWindow: 4000, // max ms between the two clicks for them to still merge
   onStep: null, // (step) => void, called every time a step is recorded
 };
 
@@ -163,6 +175,9 @@ export class PagePilotRecorder {
     this._typingBuffer = null; // { el, selector, startValue }
     this._scrollTimers = new Map(); // scroll target -> debounce timer
     this._scrollStartTop = new Map(); // scroll target -> scrollTop when this settle-cycle began
+    this._pendingTrigger = null; // last click step, candidate to merge into a chooseOption
+    this._recentMutations = []; // { target, time } — rolling window for chooseOption detection
+    this._mutationObserver = null;
 
     this._onClick = this._onClick.bind(this);
     this._onChange = this._onChange.bind(this);
@@ -177,12 +192,24 @@ export class PagePilotRecorder {
     if (this.recording) return this;
     this.recording = true;
     this.steps = [];
+    this._pendingTrigger = null;
+    this._recentMutations = [];
     document.addEventListener('click', this._onClick, true);
     document.addEventListener('change', this._onChange, true);
     document.addEventListener('focusin', this._onFocusIn, true);
     document.addEventListener('focusout', this._onFocusOut, true);
     document.addEventListener('keydown', this._onKeyDown, true);
     document.addEventListener('scroll', this._onScroll, true);
+
+    if (this.opts.mergeChooseOption) {
+      this._mutationObserver = new MutationObserver((mutations) => this._onMutations(mutations));
+      this._mutationObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'hidden', 'open', 'aria-hidden'],
+      });
+    }
 
     // If a form field already has focus at the moment recording starts (the
     // person clicked into it before pressing "Start", or it was autofocused),
@@ -211,6 +238,10 @@ export class PagePilotRecorder {
     document.removeEventListener('scroll', this._onScroll, true);
     for (const timer of this._scrollTimers.values()) clearTimeout(timer);
     this._scrollTimers.clear();
+    this._mutationObserver?.disconnect();
+    this._mutationObserver = null;
+    this._recentMutations = [];
+    this._pendingTrigger = null;
     if (this._uiEl) this._setUiRecordingState(false);
     return this.steps;
   }
@@ -241,6 +272,37 @@ export class PagePilotRecorder {
   _isIgnored(el) {
     if (this._uiEl && this._uiEl.contains(el)) return true;
     return !!el.closest?.('[data-ppr-ignore]');
+  }
+
+  /** Record a rolling window of recent DOM mutations, used to detect a
+   * custom dropdown/menu opening for chooseOption merging (see _onClick). */
+  _onMutations(mutations) {
+    const now = performance.now();
+    for (const m of mutations) {
+      this._recentMutations.push({ target: m.target, time: now });
+      if (m.addedNodes) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType === 1) this._recentMutations.push({ target: node, time: now });
+        }
+      }
+    }
+    const cutoff = now - this.opts.chooseOptionMergeWindow;
+    while (this._recentMutations.length && this._recentMutations[0].time < cutoff) {
+      this._recentMutations.shift();
+    }
+  }
+
+  /** Was `el` (or one of its ancestors/descendants) touched by a DOM
+   * mutation between `sinceTime` and `untilTime`? Used as the "a menu
+   * probably just opened here" signal for chooseOption merging. */
+  _wasRevealedSince(el, sinceTime, untilTime) {
+    for (const { target, time } of this._recentMutations) {
+      if (time < sinceTime || time > untilTime) continue;
+      if (target === el) return true;
+      if (target.contains?.(el)) return true;
+      if (el.contains?.(target)) return true;
+    }
+    return false;
   }
 
   /**
@@ -279,11 +341,57 @@ export class PagePilotRecorder {
     // just be noise (and a redundant click() during replay).
     if (this._isFormField(el)) return;
 
+    const now = performance.now();
     this._flushTyping();
+    if (this.opts.mergeChooseOption && this._tryMergeChooseOption(el, now)) {
+      this._pendingTrigger = null;
+      return;
+    }
+
     const { selector, fragile } = generateSelector(el);
     const step = { type: 'click', target: selector };
     if (fragile) step.fragile = true;
     this._pushStep(step);
+
+    // Remember this click as a possible chooseOption trigger — if the very
+    // next recorded step turns out to be a click on something that appeared
+    // shortly after this one, the two get merged (see _tryMergeChooseOption).
+    this._pendingTrigger = { el, selector, fragile, time: now, step };
+  }
+
+  /**
+   * If there's a pending trigger click, and this new click lands on
+   * something that was revealed by a DOM mutation shortly after that
+   * trigger — with nothing else recorded in between — merge both clicks
+   * into a single chooseOption step instead of two separate click steps.
+   * Returns true if it merged (caller should skip normal click recording).
+   */
+  _tryMergeChooseOption(el, now) {
+    const pending = this._pendingTrigger;
+    if (!pending) return false;
+    // Nothing else may have been recorded between the trigger click and now.
+    if (this.steps[this.steps.length - 1] !== pending.step) return false;
+    if (now - pending.time > this.opts.chooseOptionMergeWindow) return false;
+    if (pending.el === el || pending.el.contains(el)) return false;
+    if (!this._wasRevealedSince(el, pending.time, now)) return false;
+
+    const { selector: optionSelector, fragile: optionFragile } = generateSelector(el);
+    const mergedStep = {
+      type: 'chooseOption',
+      target: pending.selector,
+      option: optionSelector,
+    };
+    const waitAfterOpen = Math.round((now - pending.time) / 50) * 50;
+    if (waitAfterOpen > 0) mergedStep.options = { waitAfterOpen };
+    if (pending.fragile || optionFragile) mergedStep.fragile = true;
+
+    const idx = this.steps.indexOf(pending.step);
+    if (idx !== -1) this.steps.splice(idx, 1, mergedStep);
+    else this.steps.push(mergedStep);
+
+    this.opts.onStep?.(mergedStep);
+    if (this._uiEl) this._updateUiCount();
+    return true;
   }
 
   _onChange(e) {

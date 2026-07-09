@@ -2,7 +2,7 @@
 
 **中文** · [English](./README.md)
 
-**版本 0.1.3** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
+**版本 0.2.0** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
 
 录制页面上真实的用户操作，转换成 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `run()` 能直接吃的步骤数组——录一遍，直接能回放，不用手写选择器。
 
@@ -70,6 +70,13 @@ const recorder = new PagePilotRecorder({
 | 复选框/单选框 | `{ type: 'check', target, checked }` |
 | 非字符类按键（Enter、Escape、Tab、方向键等），以及任何带修饰键的组合（Ctrl+A、Cmd+S 等） | `{ type: 'pressKey', target, key, options }` |
 | 滚动窗口或某个容器，防抖到停下来才记录 | `{ type: 'scroll', target, options }`（滚到边缘时用 `{ to: 'top' \| 'bottom' }`，否则用 `{ amount }`） |
+| 打开一个自定义下拉菜单，并选中里面的一个选项 | `{ type: 'chooseOption', target, option, options: { waitAfterOpen } }`——自动合并，见下文 |
+
+### 自定义下拉菜单识别（chooseOption）
+
+如果一次点击"揭示"了什么东西（`MutationObserver` 监测到 DOM 变化——不管是某个原本隐藏的菜单的 `style`/`class`/`hidden` 属性变了，还是直接插入了全新的节点），紧接着又点了刚出现的这块内容里面的东西，这两次点击会自动合并成一条 `chooseOption` 步骤，而不是两条独立的 `click`——前提是这中间没有夹杂别的操作，并且第二次点击是在 `chooseOptionMergeWindow`（默认 4000ms）这个时间窗口内发生的。两次真实点击之间的间隔会被记录成 `options.waitAfterOpen`，这样回放的时候节奏跟当时真实操作的一致。
+
+这是个启发式判断，不是绝对准确——如果你更想要"永远拆成两条 click，自己决定要不要合并"，把 `mergeChooseOption` 设成 `false` 就行。
 
 ## 不会录到什么（有意为之）
 
@@ -80,7 +87,6 @@ const recorder = new PagePilotRecorder({
 
 - **`waitFor()` 步骤**——录制器没法知道页面上哪部分是异步加载的，这个需要你自己在生成的脚本里手动加上（用法参考 page-pilot 的 `waitFor()`）。
 - **`hover`/`unhover`、`dragTo`**——真实的悬停和拖拽手势跟"鼠标不小心划过去"很难可靠区分，容易产生大量误判，v1 先不做这块，需要自己手动加。
-- **`chooseOption`**——自定义下拉菜单会被录成两条独立的 `click` 步骤（点开菜单、点选项），回放起来完全没问题，只是没有用上更语义化的 `chooseOption()` 写法。
 
 录制出来的是一个起点，不是一份可以直接上生产的成品脚本——用之前review一下，尤其是标了 `fragile: true` 的那些步骤（见下文）。
 
@@ -90,12 +96,13 @@ const recorder = new PagePilotRecorder({
 
 1. `id`
 2. `data-testid` / `data-cy` / `data-test` / `data-qa`
-3. `aria-label`
-4. `name` 属性
-5. 非工具类的 class 名（会过滤掉 Tailwind 那种工具类，比如 `p-2`、`hover:bg-blue-500`，以及压缩后的单字母 class 等）
-6. 实在不行，兜底用 `nth-of-type` 结构路径，如果附近有带 `id` 的祖先元素，会从那里开始算
+3. 其他任意 `data-*` 属性（比如自定义下拉选项上的 `data-value`）——这类属性通常是应用自己的逻辑要读取的，即使不是专门为测试而加，也往往很稳定
+4. `aria-label`
+5. `name` 属性
+6. 非工具类的 class 名（会过滤掉 Tailwind 那种工具类，比如 `p-2`、`hover:bg-blue-500`，以及压缩后的单字母 class 等）
+7. 实在不行，兜底用 `nth-of-type` 结构路径，如果附近有带 `id` 的祖先元素，会从那里开始算
 
-如果某个步骤走到了第 6 级兜底方案，会带上 `fragile: true` 标记——这些是页面结构稍微一变就最容易失效的。看到这个标记，通常更值得做的是给那个元素加一个 `data-testid` 再重新录一遍，而不是就这么把结构路径原样用到生产环境里。
+如果某个步骤走到了第 7 级兜底方案，会带上 `fragile: true` 标记——这些是页面结构稍微一变就最容易失效的。看到这个标记，通常更值得做的是给那个元素加一个 `data-testid` 再重新录一遍，而不是就这么把结构路径原样用到生产环境里。
 
 ```js
 import { generateSelector } from 'page-pilot-recorder'
@@ -120,6 +127,8 @@ const { selector, fragile } = generateSelector(document.querySelector('.some-el'
 new PagePilotRecorder({
   ui: true,               // 显示悬浮的开始/停止/复制面板
   scrollSettleDelay: 250, // 滚动停下来多久之后才记一条滚动步骤（毫秒）
+  mergeChooseOption: true, // 把"打开菜单点击"+"选项点击"识别合并成一条 chooseOption
+  chooseOptionMergeWindow: 4000, // 两次点击之间超过多久就不再合并（毫秒）
   onStep: (step) => {},   // 每录到一步就会调用一次
 })
 ```
