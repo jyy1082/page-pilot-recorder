@@ -1,6 +1,6 @@
 {
   "name": "page-pilot-recorder",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Records real user interactions on a page and turns them into a step array ready for page-pilot's run() — record once, play it back, no hand-written selectors.",
   "type": "module",
   "main": "page-pilot-recorder.js",

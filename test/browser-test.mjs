@@ -278,7 +278,25 @@ async function main() {
     await page.close();
   }
 
-  console.log('=== NEW: same-origin iframe recording ===');
+  console.log('=== REGRESSION: multi-line textarea typing (Enter is a newline, not a shortcut) ===');
+  {
+    const page = await freshPage();
+    await page.click('#bio');
+    await page.keyboard.type('line one');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('line two');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('line three');
+    await page.click('#submit-btn'); // moves focus away, flushing the buffer
+    const steps = await stopAndGetSteps(page);
+    const typeStep = steps.find((s) => s.type === 'type' && s.target === '#bio');
+    check('captures all three lines, not just the first', typeStep?.text === 'line one\nline two\nline three');
+    check('Enter inside the textarea did not get recorded as its own pressKey step',
+      !steps.some((s) => s.type === 'pressKey' && s.key === 'Enter'));
+    await page.close();
+  }
+
+  console.log('=== same-origin iframe recording ===');
   {
     const page = await freshPage();
     // Give the recorder a moment to discover and attach to the iframe's

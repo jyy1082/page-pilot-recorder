@@ -635,6 +635,17 @@ export class PagePilotRecorder {
 
   _onKeyDown(e) {
     if (!this.recording) return;
+    const el = e.target;
+
+    // Enter inside a textarea/contenteditable is just a newline — part of
+    // the text being typed, not a shortcut — so let it flow into the
+    // typing buffer like any other character instead of flushing it early
+    // and recording a pressKey step. Without this, every newline would
+    // prematurely flush+clear the buffer, and everything typed after the
+    // first line would have nowhere to go and get silently lost.
+    const isMultilineField = el && el.nodeType === 1 && (el.tagName === 'TEXTAREA' || el.isContentEditable);
+    if (e.key === 'Enter' && isMultilineField) return;
+
     const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
     // Plain character keys (no modifier) flow into the typing buffer instead;
     // anything in NON_CHARACTER_KEYS, or any key combined with a modifier
@@ -642,7 +653,6 @@ export class PagePilotRecorder {
     // recorded as its own pressKey step.
     if (!NON_CHARACTER_KEYS.has(e.key) && !hasModifier) return;
 
-    const el = e.target;
     this._flushTyping(); // whatever was typed before this key counts as its own step first
 
     const modifiers = {};

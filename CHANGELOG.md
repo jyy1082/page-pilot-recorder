@@ -3,6 +3,22 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1]
+
+### Fixed
+- Multi-line typing into a `<textarea>` (or `contenteditable`) only
+  captured the first line. Enter is in the "non-character keys" list so
+  keyboard shortcuts like Enter-to-submit get recorded — but inside a
+  multi-line field, pressing Enter is just a newline, not a shortcut. Every
+  newline was prematurely flushing the typing buffer into its own `type`
+  step and clearing it, so anything typed after the first line had no
+  buffer left to land in and was silently lost. Enter now flows into the
+  typing buffer like any other character when the focused element is a
+  `<textarea>` or `contenteditable` — single-line `<input>` fields are
+  unaffected, Enter there still records as its own `pressKey` step.
+- Added a real-browser regression test: typing three lines separated by
+  Enter into a textarea now correctly captures all three, joined by `\n`.
+
 ## [0.3.0] — Drag detection, wait hints, and iframe support
 
 ### Added
