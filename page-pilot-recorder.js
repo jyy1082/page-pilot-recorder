@@ -26,24 +26,38 @@
  *   - non-character keys (Enter/Escape/Tab/arrows/etc.), and any key combined
  *     with a modifier (Ctrl+A, Cmd+S, etc.) → { type: 'pressKey', target, key, options }
  *   - scroll (window or a container), debounced until it settles → { type: 'scroll', target, options }
+ *   - drag gestures (mousedown, moved past dragThreshold, mouseup) →
+ *     { type: 'dragTo', target, destination }. destination is an element
+ *     selector if one was under the pointer at mouseup, otherwise a raw
+ *     { x, y } point. Text-selection drags are skipped automatically.
+ *   - opening a custom dropdown/menu and picking an option inside it gets
+ *     merged into one { type: 'chooseOption', target, option, options:
+ *     { waitAfterOpen } } step, detected via MutationObserver (see
+ *     mergeChooseOption below) instead of two separate click steps.
+ *   - interactions inside a same-origin iframe get a `frame` field (an
+ *     iframe selector, or an array of them for nested iframes) alongside
+ *     the usual `target`, so PagePilot knows which document to resolve the
+ *     selector in. Cross-origin iframes can't be observed at all — that's a
+ *     hard browser security limitation, not something this library can work
+ *     around. Set recordIframes: false to disable this entirely.
+ *   - a step following a long pause (opts.waitHintThreshold, default
+ *     1200ms) gets a `gapBefore` (ms) field and fires onWaitHint — a nudge
+ *     that something might have been loading, NOT an automatic waitFor()
+ *     step (the recorder has no way to know what selector to wait for).
  *
  * What does NOT get recorded (by design, needs a human to decide):
- *   - waitFor() steps — the recorder has no way to know what's "loading
- *     asynchronously"; add these yourself where the generated script needs
- *     to wait for something.
- *   - hover/unhover, dragTo — real hover and drag gestures aren't
- *     meaningfully distinguishable from incidental mouse movement without a
- *     lot of false-positive risk, so v1 leaves these out. Add them by hand.
- *   - chooseOption — a custom dropdown just gets recorded as two separate
- *     click steps (open the menu, click the option), which plays back
- *     correctly, just without the more semantic chooseOption() call.
+ *   - waitFor() steps themselves — see gapBefore/onWaitHint above for the
+ *     closest thing to automatic help here.
+ *   - hover/unhover — real hover gestures aren't meaningfully distinguishable
+ *     from incidental mouse movement without a lot of false-positive risk.
+ *     Add these by hand.
  *
  * Selector generation prefers stable attributes over structural position:
- *   id → data-testid/data-cy/data-test/data-qa → aria-label → name →
- *   non-utility class names → structural nth-of-type path (last resort).
- * Every generated step carries a `fragile: true` flag when it had to fall
- * back to a structural path, so you know which ones to double check before
- * relying on the script long-term.
+ *   id → data-testid/data-cy/data-test/data-qa → any other data-* attribute
+ *   → aria-label → name → non-utility class names → structural nth-of-type
+ *   path (last resort). Every generated step carries a `fragile: true` flag
+ *   when it had to fall back to the structural path, so you know which ones
+ *   to double check before relying on the script long-term.
  */
 
 const UTILITY_CLASS_PATTERNS = [
@@ -68,9 +82,9 @@ function escapeAttrValue(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-function isUnique(selector) {
+function isUnique(root, selector) {
   try {
-    return document.querySelectorAll(selector).length === 1;
+    return root.querySelectorAll(selector).length === 1;
   } catch {
     return false;
   }
@@ -104,18 +118,25 @@ function structuralPath(el, stopAt) {
  * structural position. Returns { selector, fragile }. `fragile: true` means
  * this had to fall back to a structural path — review it before relying on
  * the generated script long-term; consider adding a data-testid instead.
+ *
+ * Uniqueness is checked against the element's OWN document (el.ownerDocument),
+ * not necessarily the top-level `document` — this matters for elements
+ * inside a same-origin iframe, where the top document has no idea the
+ * element even exists.
  */
 export function generateSelector(el) {
+  const root = el.ownerDocument || document;
+
   if (el.id) {
     const sel = `#${cssEscape(el.id)}`;
-    if (isUnique(sel)) return { selector: sel, fragile: false };
+    if (isUnique(root, sel)) return { selector: sel, fragile: false };
   }
 
   for (const attr of ['data-testid', 'data-cy', 'data-test', 'data-qa']) {
     const val = el.getAttribute(attr);
     if (val) {
       const sel = `[${attr}="${escapeAttrValue(val)}"]`;
-      if (isUnique(sel)) return { selector: sel, fragile: false };
+      if (isUnique(root, sel)) return { selector: sel, fragile: false };
     }
   }
 
@@ -126,29 +147,29 @@ export function generateSelector(el) {
   for (const attr of el.attributes || []) {
     if (!attr.name.startsWith('data-') || skipDataAttrs.has(attr.name)) continue;
     const sel = `${el.tagName.toLowerCase()}[${attr.name}="${escapeAttrValue(attr.value)}"]`;
-    if (isUnique(sel)) return { selector: sel, fragile: false };
+    if (isUnique(root, sel)) return { selector: sel, fragile: false };
   }
 
   const ariaLabel = el.getAttribute('aria-label');
   if (ariaLabel) {
     const sel = `${el.tagName.toLowerCase()}[aria-label="${escapeAttrValue(ariaLabel)}"]`;
-    if (isUnique(sel)) return { selector: sel, fragile: false };
+    if (isUnique(root, sel)) return { selector: sel, fragile: false };
   }
 
   const name = el.getAttribute('name');
   if (name) {
     const sel = `${el.tagName.toLowerCase()}[name="${escapeAttrValue(name)}"]`;
-    if (isUnique(sel)) return { selector: sel, fragile: false };
+    if (isUnique(root, sel)) return { selector: sel, fragile: false };
   }
 
   const stableClasses = Array.from(el.classList || []).filter(isStableClass);
   if (stableClasses.length) {
     const sel = `${el.tagName.toLowerCase()}.${stableClasses.map(cssEscape).join('.')}`;
-    if (isUnique(sel)) return { selector: sel, fragile: false };
+    if (isUnique(root, sel)) return { selector: sel, fragile: false };
   }
 
   const ancestor = nearestIdAncestor(el);
-  const path = structuralPath(el, ancestor || document.body);
+  const path = structuralPath(el, ancestor || root.body);
   const selector = ancestor ? `#${cssEscape(ancestor.id)} > ${path}` : path;
   return { selector, fragile: true };
 }
@@ -164,7 +185,12 @@ const DEFAULTS = {
   scrollSettleDelay: 250, // ms of no scroll activity before a scroll step is recorded
   mergeChooseOption: true, // detect trigger-click + option-click into one chooseOption step
   chooseOptionMergeWindow: 4000, // max ms between the two clicks for them to still merge
+  recordDragTo: true, // detect mousedown-move-mouseup gestures as dragTo steps
+  dragThreshold: 10, // px of movement before a mousedown/mouseup pair counts as a drag, not a click
+  waitHintThreshold: 1200, // ms of silence before a step gets a gapBefore hint (see onWaitHint)
+  recordIframes: true, // also record interactions inside same-origin iframes
   onStep: null, // (step) => void, called every time a step is recorded
+  onWaitHint: null, // (gapMs, step) => void, called when a long pause is detected before a step
 };
 
 export class PagePilotRecorder {
@@ -178,6 +204,10 @@ export class PagePilotRecorder {
     this._pendingTrigger = null; // last click step, candidate to merge into a chooseOption
     this._recentMutations = []; // { target, time } — rolling window for chooseOption detection
     this._mutationObserver = null;
+    this._dragCandidate = null; // { el, startX, startY, time } while a mouse button is held down
+    this._observedDocuments = new Map(); // Document -> frame path (array of iframe selectors from top)
+    this._iframeLoadHandlers = new Map(); // iframe element -> its 'load' handler, for cleanup
+    this._lastStepTime = null; // performance.now() of the last recorded step, for wait-hint detection
 
     this._onClick = this._onClick.bind(this);
     this._onChange = this._onChange.bind(this);
@@ -185,6 +215,8 @@ export class PagePilotRecorder {
     this._onFocusOut = this._onFocusOut.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
     this._onScroll = this._onScroll.bind(this);
+    this._onMouseDown = this._onMouseDown.bind(this);
+    this._onMouseUp = this._onMouseUp.bind(this);
   }
 
   /** Start listening. Returns this, so `recorder.start()` reads naturally. */
@@ -194,14 +226,14 @@ export class PagePilotRecorder {
     this.steps = [];
     this._pendingTrigger = null;
     this._recentMutations = [];
-    document.addEventListener('click', this._onClick, true);
-    document.addEventListener('change', this._onChange, true);
-    document.addEventListener('focusin', this._onFocusIn, true);
-    document.addEventListener('focusout', this._onFocusOut, true);
-    document.addEventListener('keydown', this._onKeyDown, true);
-    document.addEventListener('scroll', this._onScroll, true);
+    this._dragCandidate = null;
+    this._observedDocuments = new Map();
+    this._iframeLoadHandlers = new Map();
+    this._lastStepTime = performance.now();
 
-    if (this.opts.mergeChooseOption) {
+    this._attachListenersTo(document, []);
+
+    if (this.opts.mergeChooseOption || this.opts.recordIframes) {
       this._mutationObserver = new MutationObserver((mutations) => this._onMutations(mutations));
       this._mutationObserver.observe(document.documentElement, {
         childList: true,
@@ -216,8 +248,10 @@ export class PagePilotRecorder {
     // no 'focusin' will ever fire for it during this session — nothing would
     // trigger the typing buffer to be created, silently losing anything they
     // type. Seed the buffer immediately as if a focusin had just happened.
-    const active = document.activeElement;
-    if (active instanceof Element && this._isFormField(active)) {
+    // This descends into iframes too, since a focused iframe shows up as
+    // the top document's activeElement being the <iframe> itself.
+    const active = this._deepActiveElement(document);
+    if (active && active.nodeType === 1 && this._isFormField(active)) {
       this._beginTypingBuffer(active);
     }
 
@@ -230,20 +264,98 @@ export class PagePilotRecorder {
     if (!this.recording) return this.steps;
     this.recording = false;
     this._flushTyping();
-    document.removeEventListener('click', this._onClick, true);
-    document.removeEventListener('change', this._onChange, true);
-    document.removeEventListener('focusin', this._onFocusIn, true);
-    document.removeEventListener('focusout', this._onFocusOut, true);
-    document.removeEventListener('keydown', this._onKeyDown, true);
-    document.removeEventListener('scroll', this._onScroll, true);
+    for (const doc of this._observedDocuments.keys()) this._detachListenersFrom(doc);
+    this._observedDocuments.clear();
+    for (const [iframe, handler] of this._iframeLoadHandlers) iframe.removeEventListener('load', handler);
+    this._iframeLoadHandlers.clear();
     for (const timer of this._scrollTimers.values()) clearTimeout(timer);
     this._scrollTimers.clear();
     this._mutationObserver?.disconnect();
     this._mutationObserver = null;
     this._recentMutations = [];
     this._pendingTrigger = null;
+    this._dragCandidate = null;
     if (this._uiEl) this._setUiRecordingState(false);
     return this.steps;
+  }
+
+  /**
+   * Attach the full set of recording listeners to a document (the top page,
+   * or a same-origin iframe's contentDocument), and — if opts.recordIframes
+   * is on — recurse into any same-origin iframes already inside it.
+   * `framePath` is the array of iframe selectors needed to reach `doc` from
+   * the top document (empty for the top document itself).
+   */
+  _attachListenersTo(doc, framePath) {
+    if (this._observedDocuments.has(doc)) return;
+    this._observedDocuments.set(doc, framePath);
+    doc.addEventListener('click', this._onClick, true);
+    doc.addEventListener('change', this._onChange, true);
+    doc.addEventListener('focusin', this._onFocusIn, true);
+    doc.addEventListener('focusout', this._onFocusOut, true);
+    doc.addEventListener('keydown', this._onKeyDown, true);
+    doc.addEventListener('scroll', this._onScroll, true);
+    if (this.opts.recordDragTo) {
+      doc.addEventListener('mousedown', this._onMouseDown, true);
+      doc.addEventListener('mouseup', this._onMouseUp, true);
+    }
+    if (this.opts.recordIframes) this._discoverIframes(doc, framePath);
+  }
+
+  _detachListenersFrom(doc) {
+    doc.removeEventListener('click', this._onClick, true);
+    doc.removeEventListener('change', this._onChange, true);
+    doc.removeEventListener('focusin', this._onFocusIn, true);
+    doc.removeEventListener('focusout', this._onFocusOut, true);
+    doc.removeEventListener('keydown', this._onKeyDown, true);
+    doc.removeEventListener('scroll', this._onScroll, true);
+    doc.removeEventListener('mousedown', this._onMouseDown, true);
+    doc.removeEventListener('mouseup', this._onMouseUp, true);
+  }
+
+  /** Find same-origin iframes inside `doc` and start observing them too. */
+  _discoverIframes(doc, parentFramePath) {
+    let iframes;
+    try {
+      iframes = doc.querySelectorAll('iframe');
+    } catch {
+      return;
+    }
+    for (const iframe of iframes) {
+      if (this._iframeLoadHandlers.has(iframe)) continue;
+
+      const attach = () => {
+        let innerDoc;
+        try {
+          innerDoc = iframe.contentDocument;
+        } catch {
+          innerDoc = null; // cross-origin — inaccessible, nothing we can do
+        }
+        // A same-origin iframe's contentDocument gets swapped out for a brand
+        // new Document object once it finishes navigating to its real
+        // content — attaching to whatever contentDocument is present right
+        // this instant could mean attaching to a transitional empty document
+        // that's about to be discarded. The 'load' listener below re-runs
+        // this once the iframe's real content is actually ready, so this
+        // works correctly regardless of whether it's already loaded when
+        // discovered or still in flight.
+        if (!innerDoc || this._observedDocuments.has(innerDoc)) return;
+        const { selector } = generateSelector(iframe);
+        this._attachListenersTo(innerDoc, [...parentFramePath, selector]);
+      };
+      this._iframeLoadHandlers.set(iframe, attach);
+      attach();
+      iframe.addEventListener('load', attach);
+    }
+  }
+
+  /** The frame path for an element's own document, or undefined if it's the
+   * top document (so steps for top-level elements don't carry a frame field). */
+  _frameFor(el) {
+    const doc = el.ownerDocument || document;
+    const path = this._observedDocuments.get(doc);
+    if (!path || path.length === 0) return undefined;
+    return path.length === 1 ? path[0] : path;
   }
 
   /** Clear everything recorded so far without stopping. */
@@ -253,9 +365,47 @@ export class PagePilotRecorder {
   }
 
   _pushStep(step) {
+    this._applyWaitHint(step);
     this.steps.push(step);
     this.opts.onStep?.(step);
     if (this._uiEl) this._updateUiCount();
+  }
+
+  /**
+   * If a long stretch of silence preceded this step, attach a `gapBefore`
+   * (ms) hint to it and fire onWaitHint. This is deliberately NOT an
+   * automatic waitFor() step — the recorder has no way to know what
+   * selector to wait for — just a nudge that a pause happened here, in
+   * case it was waiting on something to load asynchronously.
+   */
+  _applyWaitHint(step) {
+    const now = performance.now();
+    if (this._lastStepTime != null) {
+      const gap = now - this._lastStepTime;
+      if (gap >= this.opts.waitHintThreshold) {
+        step.gapBefore = Math.round(gap);
+        this.opts.onWaitHint?.(step.gapBefore, step);
+      }
+    }
+    this._lastStepTime = now;
+  }
+
+  /** The actual focused element, descending into iframes as needed — a
+   * focused iframe shows up as the parent document's activeElement being
+   * the <iframe> tag itself, not the element focused inside it. */
+  _deepActiveElement(doc) {
+    let active = doc.activeElement;
+    while (active && active.tagName === 'IFRAME') {
+      let inner;
+      try {
+        inner = active.contentDocument;
+      } catch {
+        inner = null;
+      }
+      if (!inner) break;
+      active = inner.activeElement;
+    }
+    return active;
   }
 
   _isFormField(el) {
@@ -278,17 +428,32 @@ export class PagePilotRecorder {
    * custom dropdown/menu opening for chooseOption merging (see _onClick). */
   _onMutations(mutations) {
     const now = performance.now();
-    for (const m of mutations) {
-      this._recentMutations.push({ target: m.target, time: now });
-      if (m.addedNodes) {
-        for (const node of m.addedNodes) {
-          if (node.nodeType === 1) this._recentMutations.push({ target: node, time: now });
+    if (this.opts.mergeChooseOption) {
+      for (const m of mutations) {
+        this._recentMutations.push({ target: m.target, time: now });
+        if (m.addedNodes) {
+          for (const node of m.addedNodes) {
+            if (node.nodeType === 1) this._recentMutations.push({ target: node, time: now });
+          }
         }
       }
+      const cutoff = now - this.opts.chooseOptionMergeWindow;
+      while (this._recentMutations.length && this._recentMutations[0].time < cutoff) {
+        this._recentMutations.shift();
+      }
     }
-    const cutoff = now - this.opts.chooseOptionMergeWindow;
-    while (this._recentMutations.length && this._recentMutations[0].time < cutoff) {
-      this._recentMutations.shift();
+
+    if (this.opts.recordIframes) {
+      for (const m of mutations) {
+        if (!m.addedNodes) continue;
+        for (const node of m.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          const doc = node.ownerDocument;
+          const framePath = this._observedDocuments.get(doc) || [];
+          if (node.tagName === 'IFRAME') this._discoverIframes(doc, framePath);
+          else if (node.querySelector?.('iframe')) this._discoverIframes(doc, framePath);
+        }
+      }
     }
   }
 
@@ -316,7 +481,9 @@ export class PagePilotRecorder {
    * subsequent click/change/keydown, catches that regardless of the cause.
    */
   _flushIfBlurred() {
-    if (this._typingBuffer && document.activeElement !== this._typingBuffer.el) {
+    if (!this._typingBuffer) return;
+    const ownerDoc = this._typingBuffer.el.ownerDocument || document;
+    if (ownerDoc.activeElement !== this._typingBuffer.el) {
       this._flushTyping();
     }
   }
@@ -324,7 +491,7 @@ export class PagePilotRecorder {
   _onClick(e) {
     if (!this.recording) return;
     const el = e.target;
-    if (!(el instanceof Element)) return;
+    if (!(el && el.nodeType === 1)) return;
     if (this._isIgnored(el)) return; // don't record clicks on the recorder's own controls
     this._flushIfBlurred();
 
@@ -351,12 +518,14 @@ export class PagePilotRecorder {
     const { selector, fragile } = generateSelector(el);
     const step = { type: 'click', target: selector };
     if (fragile) step.fragile = true;
+    const frame = this._frameFor(el);
+    if (frame) step.frame = frame;
     this._pushStep(step);
 
     // Remember this click as a possible chooseOption trigger — if the very
     // next recorded step turns out to be a click on something that appeared
     // shortly after this one, the two get merged (see _tryMergeChooseOption).
-    this._pendingTrigger = { el, selector, fragile, time: now, step };
+    this._pendingTrigger = { el, selector, fragile, frame, time: now, step };
   }
 
   /**
@@ -384,11 +553,14 @@ export class PagePilotRecorder {
     const waitAfterOpen = Math.round((now - pending.time) / 50) * 50;
     if (waitAfterOpen > 0) mergedStep.options = { waitAfterOpen };
     if (pending.fragile || optionFragile) mergedStep.fragile = true;
+    if (pending.frame) mergedStep.frame = pending.frame;
+    if (pending.step.gapBefore) mergedStep.gapBefore = pending.step.gapBefore;
 
     const idx = this.steps.indexOf(pending.step);
     if (idx !== -1) this.steps.splice(idx, 1, mergedStep);
     else this.steps.push(mergedStep);
 
+    this._lastStepTime = now;
     this.opts.onStep?.(mergedStep);
     if (this._uiEl) this._updateUiCount();
     return true;
@@ -397,7 +569,7 @@ export class PagePilotRecorder {
   _onChange(e) {
     if (!this.recording) return;
     const el = e.target;
-    if (!(el instanceof Element)) return;
+    if (!(el && el.nodeType === 1)) return;
     if (this._isIgnored(el)) return;
     this._flushIfBlurred();
 
@@ -408,6 +580,8 @@ export class PagePilotRecorder {
         : el.value;
       const step = { type: 'select', target: selector, value };
       if (fragile) step.fragile = true;
+      const frame = this._frameFor(el);
+      if (frame) step.frame = frame;
       this._pushStep(step);
       return;
     }
@@ -416,6 +590,8 @@ export class PagePilotRecorder {
       const { selector, fragile } = generateSelector(el);
       const step = { type: 'check', target: selector, checked: el.checked };
       if (fragile) step.fragile = true;
+      const frame = this._frameFor(el);
+      if (frame) step.frame = frame;
       this._pushStep(step);
     }
   }
@@ -423,7 +599,7 @@ export class PagePilotRecorder {
   _onFocusIn(e) {
     if (!this.recording) return;
     const el = e.target;
-    if (!(el instanceof Element) || !this._isFormField(el)) return;
+    if (!(el && el.nodeType === 1) || !this._isFormField(el)) return;
     this._beginTypingBuffer(el);
   }
 
@@ -452,6 +628,8 @@ export class PagePilotRecorder {
     if (currentValue === buf.startValue || currentValue === '') return; // nothing typed, skip
     const step = { type: 'type', target: buf.selector, text: currentValue };
     if (buf.fragile) step.fragile = true;
+    const frame = this._frameFor(buf.el);
+    if (frame) step.frame = frame;
     this._pushStep(step);
   }
 
@@ -475,21 +653,25 @@ export class PagePilotRecorder {
 
     let target = null;
     let fragile = false;
-    if (el instanceof Element && el !== document.body) {
+    let frame;
+    if (el && el.nodeType === 1 && el !== (el.ownerDocument || document).body) {
       ({ selector: target, fragile } = generateSelector(el));
+      frame = this._frameFor(el);
     }
 
     const step = { type: 'pressKey', target, key: e.key };
     if (Object.keys(modifiers).length) step.options = { modifiers };
     if (fragile) step.fragile = true;
+    if (frame) step.frame = frame;
     this._pushStep(step);
   }
 
   _onScroll(e) {
     if (!this.recording) return;
-    const target = e.target === document ? window : e.target;
+    const isDocumentScroll = e.target && e.target.nodeType === 9; // 9 = DOCUMENT_NODE; realm-safe, unlike instanceof Document
+    const target = isDocumentScroll ? (e.target.defaultView || window) : e.target;
     if (!this._scrollStartTop.has(target)) {
-      this._scrollStartTop.set(target, target === window ? window.scrollY : target.scrollTop);
+      this._scrollStartTop.set(target, typeof target.scrollY === 'number' ? target.scrollY : target.scrollTop);
     }
     clearTimeout(this._scrollTimers.get(target));
     this._scrollTimers.set(target, setTimeout(() => this._flushScroll(target), this.opts.scrollSettleDelay));
@@ -500,12 +682,13 @@ export class PagePilotRecorder {
     this._scrollStartTop.delete(target);
     this._scrollTimers.delete(target);
 
-    const isWindow = target === window;
-    const scrollTop = isWindow ? window.scrollY : target.scrollTop;
-    const scrollHeight = isWindow
-      ? (document.scrollingElement || document.documentElement).scrollHeight
+    const isWindowLike = typeof target.scrollY === 'number';
+    const doc = isWindowLike ? target.document : target.ownerDocument;
+    const scrollTop = isWindowLike ? target.scrollY : target.scrollTop;
+    const scrollHeight = isWindowLike
+      ? (doc.scrollingElement || doc.documentElement).scrollHeight
       : target.scrollHeight;
-    const clientHeight = isWindow ? window.innerHeight : target.clientHeight;
+    const clientHeight = isWindowLike ? target.innerHeight : target.clientHeight;
 
     let options;
     if (scrollTop <= 1) options = { to: 'top' };
@@ -513,12 +696,78 @@ export class PagePilotRecorder {
     else options = { amount: scrollTop - startTop };
 
     const step = { type: 'scroll', target: null, options };
-    if (!isWindow) {
+    if (!isWindowLike) {
       const { selector, fragile } = generateSelector(target);
       step.target = selector;
       if (fragile) step.fragile = true;
+      const frame = this._frameFor(target);
+      if (frame) step.frame = frame;
+    } else {
+      // Scrolling the window of a same-origin iframe (not the top page)
+      // still needs a frame marker so playback knows which window to scroll.
+      const framePath = this._observedDocuments.get(doc);
+      if (framePath && framePath.length) step.frame = framePath.length === 1 ? framePath[0] : framePath;
     }
     this._pushStep(step);
+  }
+
+  /**
+   * Drag detection: track where a mouse button went down, and on mouseup,
+   * check whether it moved far enough (opts.dragThreshold) to count as a
+   * deliberate drag rather than a click — browsers already suppress the
+   * 'click' event themselves when the pointer moves enough between down
+   * and up, so there's little risk of double-recording the same gesture.
+   */
+  _onMouseDown(e) {
+    if (!this.recording || e.button !== 0) return;
+    const el = e.target;
+    if (!(el && el.nodeType === 1) || this._isIgnored(el)) return;
+    this._dragCandidate = { el, startX: e.clientX, startY: e.clientY, time: performance.now() };
+  }
+
+  _onMouseUp(e) {
+    if (!this.recording) return;
+    const cand = this._dragCandidate;
+    this._dragCandidate = null;
+    if (!cand) return;
+
+    const dx = e.clientX - cand.startX;
+    const dy = e.clientY - cand.startY;
+    if (Math.sqrt(dx * dx + dy * dy) < this.opts.dragThreshold) return; // just a click
+
+    // A drag that ended with a text selection is probably the person
+    // selecting text, not dragging a UI element — skip recording that as
+    // dragTo (leave text-selection interactions unrecorded entirely; there's
+    // no faithful way to "replay" a text selection via page-pilot anyway).
+    const doc = cand.el.ownerDocument || document;
+    const selection = doc.defaultView?.getSelection?.();
+    if (selection && String(selection).length > 0) return;
+
+    this._flushIfBlurred();
+    this._flushTyping();
+
+    const { selector: sourceSelector, fragile: sourceFragile } = generateSelector(cand.el);
+    let destEl = null;
+    try {
+      destEl = doc.elementFromPoint(e.clientX, e.clientY);
+    } catch {
+      destEl = null;
+    }
+
+    const step = { type: 'dragTo', target: sourceSelector };
+    let fragile = sourceFragile;
+    if (destEl && destEl !== cand.el && !cand.el.contains(destEl)) {
+      const { selector: destSelector, fragile: destFragile } = generateSelector(destEl);
+      step.destination = destSelector;
+      fragile = fragile || destFragile;
+    } else {
+      step.destination = { x: e.clientX, y: e.clientY };
+    }
+    if (fragile) step.fragile = true;
+    const frame = this._frameFor(cand.el);
+    if (frame) step.frame = frame;
+    this._pushStep(step);
+    this._pendingTrigger = null; // a drag breaks any pending chooseOption merge
   }
 
   // --- minimal floating UI -------------------------------------------------

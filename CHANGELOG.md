@@ -3,6 +3,55 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] — Drag detection, wait hints, and iframe support
+
+### Added
+- `dragTo` recording: a `mousedown` followed by movement past `dragThreshold`
+  (default 10px) before `mouseup` is recorded as `{ type: 'dragTo', target,
+  destination }`. Text-selection drags are detected and skipped. Set
+  `recordDragTo: false` to disable.
+- Wait hints: a step following a pause of `waitHintThreshold` (default
+  1200ms) or more gets a `gapBefore` (ms) field and fires
+  `onWaitHint(gapMs, step)` — a nudge that a `waitFor()` might belong there,
+  not an automatic one (the recorder still can't know what selector to wait
+  for).
+- Same-origin iframe recording: interactions inside a same-origin iframe
+  now get a `frame` field (an iframe selector, or an array for nested
+  iframes) alongside the usual `target`, so page-pilot's `run()` knows
+  which document to resolve the selector in. Cross-origin iframes remain
+  unobservable (a hard browser security limitation). Set
+  `recordIframes: false` to disable.
+- `generateSelector()` (and the whole recorder) now resolves uniqueness
+  against each element's own document (`el.ownerDocument`), not always the
+  top-level `document` — required for correct selectors on elements inside
+  iframes.
+
+### Fixed
+- Every `el instanceof Element` (and one `instanceof Document`) check
+  silently failed for anything inside an iframe, since each iframe has its
+  own separate realm with its own `Element`/`Document` constructors —
+  `instanceof` across realms is always `false` even for structurally
+  identical elements. Replaced with realm-safe `nodeType` checks
+  (`nodeType === 1` / `=== 9`). This is what actually broke iframe click
+  recording during development, caught only once real cross-frame
+  interactions were tested in an actual browser.
+- `_flushIfBlurred()`'s safety net compared the typing buffer's element
+  against the top-level `document.activeElement` — for a field focused
+  inside an iframe, the top document's `activeElement` is the `<iframe>`
+  tag itself, never equal to the actual input, so this incorrectly flushed
+  (and discarded) the buffer the instant it was created. Now compares
+  against the buffered element's own `ownerDocument.activeElement`.
+- A same-origin iframe's `contentDocument` gets replaced by a brand-new
+  `Document` object once it finishes navigating to its real content —
+  attaching listeners to whatever's there the instant the iframe is
+  discovered could mean attaching to a transitional, about-to-be-discarded
+  document. Iframe discovery now also listens for the iframe's own `load`
+  event and re-attaches at that point.
+- 12 new real-browser test cases covering dragTo (including the
+  click-vs-drag threshold), wait hints, and iframe recording (typing,
+  clicking, and a full record → replay round trip through a real
+  `PagePilot.run()`).
+
 ## [0.2.0] — Custom dropdown detection (chooseOption)
 
 ### Added

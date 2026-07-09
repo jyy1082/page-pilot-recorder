@@ -2,7 +2,7 @@
 
 **中文** · [English](./README.md)
 
-**版本 0.2.0** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
+**版本 0.3.0** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
 
 录制页面上真实的用户操作，转换成 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `run()` 能直接吃的步骤数组——录一遍，直接能回放，不用手写选择器。
 
@@ -71,12 +71,42 @@ const recorder = new PagePilotRecorder({
 | 非字符类按键（Enter、Escape、Tab、方向键等），以及任何带修饰键的组合（Ctrl+A、Cmd+S 等） | `{ type: 'pressKey', target, key, options }` |
 | 滚动窗口或某个容器，防抖到停下来才记录 | `{ type: 'scroll', target, options }`（滚到边缘时用 `{ to: 'top' \| 'bottom' }`，否则用 `{ amount }`） |
 | 打开一个自定义下拉菜单，并选中里面的一个选项 | `{ type: 'chooseOption', target, option, options: { waitAfterOpen } }`——自动合并，见下文 |
+| 一次拖拽手势（按下、移动超过阈值、松开） | `{ type: 'dragTo', target, destination }`——`destination` 如果松开时鼠标下面有元素就是选择器，否则就是一个原始的 `{ x, y }` 坐标点 |
+
+任何步骤都可能额外带上：
+- **`frame`**——如果这次操作发生在一个同源 iframe 里面（是一个 iframe 选择器，多层嵌套的话是数组），这样 page-pilot 才知道该去哪个文档里找。详见下面的"iframe 支持"。
+- **`gapBefore`**（毫秒）——如果这一步之前停顿了很久，提醒你这里可能是在等什么东西加载。详见下面的"等待提示"。
+- **`fragile: true`**——如果选择器退到了结构路径兜底方案。详见下面的"选择器生成策略"。
 
 ### 自定义下拉菜单识别（chooseOption）
 
 如果一次点击"揭示"了什么东西（`MutationObserver` 监测到 DOM 变化——不管是某个原本隐藏的菜单的 `style`/`class`/`hidden` 属性变了，还是直接插入了全新的节点），紧接着又点了刚出现的这块内容里面的东西，这两次点击会自动合并成一条 `chooseOption` 步骤，而不是两条独立的 `click`——前提是这中间没有夹杂别的操作，并且第二次点击是在 `chooseOptionMergeWindow`（默认 4000ms）这个时间窗口内发生的。两次真实点击之间的间隔会被记录成 `options.waitAfterOpen`，这样回放的时候节奏跟当时真实操作的一致。
 
 这是个启发式判断，不是绝对准确——如果你更想要"永远拆成两条 click，自己决定要不要合并"，把 `mergeChooseOption` 设成 `false` 就行。
+
+### 拖拽识别（dragTo）
+
+`mousedown` 之后移动超过一定距离（`dragThreshold`，默认 10px）再 `mouseup`，就算作一次拖拽而不是点击——浏览器本身在指针移动这么多之后就不会再触发 `click` 事件了，所以不用担心同一个手势被重复记录。如果松开鼠标的时候页面上有一段非空的文字被选中了，说明这更可能是在选文字而不是拖拽 UI 元素，这种情况完全不会被录下来（文字选中这种交互没法"回放"）。把 `recordDragTo` 设成 `false` 可以完全关闭这个功能。
+
+### 等待提示（gapBefore）
+
+如果某一步之前停顿超过了 `waitHintThreshold`（默认 1200ms），这一步会带上 `gapBefore`（毫秒）字段，并触发 `onWaitHint(gapMs, step)`。**这不是**自动生成的 `waitFor()` 步骤——录制器没法知道该等哪个选择器——只是提醒你"这里停顿了一下，可能当时在等什么东西异步加载"，生成的脚本这个位置也许该手动加一条 `waitFor()`。
+
+```js
+const recorder = new PagePilotRecorder({
+  onWaitHint: (gapMs, step) => console.log(`这一步之前停顿了 ${gapMs}ms`, step),
+})
+```
+
+### iframe 支持
+
+**同源** iframe 里的操作会跟别的操作一样被正常录下来，只是会多带一个 `frame` 字段，告诉 page-pilot 该去哪个文档里找这个选择器：
+
+```json
+{ "type": "click", "target": "#confirm-btn", "frame": "#payment-iframe" }
+```
+
+如果是多层嵌套的 iframe，`frame` 会是个数组（从最外层到最内层）。page-pilot 那边完全"开箱即用"——录制出来的步骤直接丢给 `run()` 就行，不需要手动调整。**跨域的 iframe 完全没法监听**——这是浏览器安全机制层面的硬限制（任何自动化工具不借助服务端配合都进不去跨域 iframe），不是这个库能想办法绕过的。把 `recordIframes` 设成 `false` 可以完全关闭 iframe 遍历。
 
 ## 不会录到什么（有意为之）
 
@@ -85,8 +115,8 @@ const recorder = new PagePilotRecorder({
   <button id="stop-btn" data-ppr-ignore>Stop</button>
   ```
 
-- **`waitFor()` 步骤**——录制器没法知道页面上哪部分是异步加载的，这个需要你自己在生成的脚本里手动加上（用法参考 page-pilot 的 `waitFor()`）。
-- **`hover`/`unhover`、`dragTo`**——真实的悬停和拖拽手势跟"鼠标不小心划过去"很难可靠区分，容易产生大量误判，v1 先不做这块，需要自己手动加。
+- **`waitFor()` 步骤本身**——上面"等待提示"那部分是目前能做到的最接近自动化的辅助，具体要等什么还是得你自己决定。
+- **`hover`/`unhover`**——真实的悬停手势跟"鼠标不小心划过去"很难可靠区分，容易产生大量误判，需要自己手动加。
 
 录制出来的是一个起点，不是一份可以直接上生产的成品脚本——用之前review一下，尤其是标了 `fragile: true` 的那些步骤（见下文）。
 
@@ -129,7 +159,12 @@ new PagePilotRecorder({
   scrollSettleDelay: 250, // 滚动停下来多久之后才记一条滚动步骤（毫秒）
   mergeChooseOption: true, // 把"打开菜单点击"+"选项点击"识别合并成一条 chooseOption
   chooseOptionMergeWindow: 4000, // 两次点击之间超过多久就不再合并（毫秒）
+  recordDragTo: true,     // 把 mousedown-移动-mouseup 这种手势识别成 dragTo 步骤
+  dragThreshold: 10,      // 移动超过多少像素才算拖拽而不是点击
+  waitHintThreshold: 1200, // 停顿超过多久，就给这一步加上 gapBefore 提示（毫秒）
+  recordIframes: true,    // 是否也录制同源 iframe 里的操作
   onStep: (step) => {},   // 每录到一步就会调用一次
+  onWaitHint: (gapMs, step) => {}, // 检测到长时间停顿时调用
 })
 ```
 

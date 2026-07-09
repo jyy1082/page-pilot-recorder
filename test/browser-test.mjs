@@ -233,9 +233,80 @@ async function main() {
     await page.close();
   }
 
+  console.log('=== NEW: dragTo recording ===');
+  {
+    const page = await freshPage();
+    const source = await page.locator('#drag-source').boundingBox();
+    const target = await page.locator('#drag-target').boundingBox();
+    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 10 });
+    await page.mouse.up();
+    const steps = await stopAndGetSteps(page);
+    check('records a dragTo step', steps.some((s) => s.type === 'dragTo'));
+    const dragStep = steps.find((s) => s.type === 'dragTo');
+    check('source target is correct', dragStep?.target === '#drag-source');
+    check('destination resolves to the drop zone element', dragStep?.destination === '#drag-target');
+    await page.close();
+  }
+
+  console.log('=== NEW: small mouse movement is NOT recorded as a drag (stays a click) ===');
+  {
+    const page = await freshPage();
+    const box = await page.locator('#submit-btn').boundingBox();
+    await page.mouse.move(box.x + 5, box.y + 5);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 6, box.y + 6); // tiny movement, below threshold
+    await page.mouse.up();
+    const steps = await stopAndGetSteps(page);
+    check('no dragTo step for a near-stationary click', !steps.some((s) => s.type === 'dragTo'));
+    check('recorded as a normal click instead', steps.some((s) => s.type === 'click' && s.target === '#submit-btn'));
+    await page.close();
+  }
+
+  console.log('=== NEW: wait-hint (gapBefore) detection ===');
+  {
+    const page = await freshPage();
+    await page.click('#submit-btn');
+    await page.waitForTimeout(1500); // longer than the default 1200ms threshold
+    await page.check('#agree-checkbox');
+    const steps = await stopAndGetSteps(page);
+    const checkStep = steps.find((s) => s.type === 'check');
+    check('a long pause before a step attaches gapBefore', typeof checkStep?.gapBefore === 'number' && checkStep.gapBefore >= 1200);
+    const clickStep = steps.find((s) => s.type === 'click');
+    check('a step with no preceding pause has no gapBefore', clickStep && clickStep.gapBefore === undefined);
+    await page.close();
+  }
+
+  console.log('=== NEW: same-origin iframe recording ===');
+  {
+    const page = await freshPage();
+    // Give the recorder a moment to discover and attach to the iframe's
+    // document (its content loads via a separate, async HTTP request) —
+    // in real human-paced usage this is always ready well before anyone
+    // could possibly click into it, but a scripted test can outrace it.
+    await page.waitForFunction(() => window.__recorder._observedDocuments.size >= 2);
+    const frame = page.frameLocator('#test-iframe');
+    await frame.locator('#iframe-input').click();
+    await page.keyboard.type('Hello iframe');
+    await frame.locator('#iframe-btn').click();
+    const steps = await stopAndGetSteps(page);
+
+    const typeStep = steps.find((s) => s.type === 'type' && s.text === 'Hello iframe');
+    check('captures typing inside the iframe', !!typeStep);
+    check('typing step carries a frame marker', typeStep?.frame === '#test-iframe');
+
+    const clickStep = steps.find((s) => s.type === 'click' && s.target === '#iframe-btn');
+    check('captures a click inside the iframe', !!clickStep);
+    check('click step carries a frame marker', clickStep?.frame === '#test-iframe');
+    await page.close();
+  }
+
   intentionalClose = true;
   await browser.close();
   server.close();
+
+
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);

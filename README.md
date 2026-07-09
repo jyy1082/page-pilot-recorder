@@ -2,7 +2,7 @@
 
 [中文](./README.zh-CN.md) · **English**
 
-**Version 0.2.0** · see [CHANGELOG.md](./CHANGELOG.md) for release history
+**Version 0.3.0** · see [CHANGELOG.md](./CHANGELOG.md) for release history
 
 Records real user interactions on a page and turns them into a step array
 in exactly the shape [page-pilot](https://github.com/jyy1082/page-pilot)'s
@@ -79,6 +79,12 @@ const recorder = new PagePilotRecorder({
 | Non-character keys (Enter, Escape, Tab, arrows, etc.) and any key combined with a modifier (Ctrl+A, Cmd+S, etc.) | `{ type: 'pressKey', target, key, options }` |
 | Scrolling a window or a container, debounced until it settles | `{ type: 'scroll', target, options }` (uses `{ to: 'top' \| 'bottom' }` when it lands on an edge, `{ amount }` otherwise) |
 | Opening a custom dropdown/menu and picking an option inside it | `{ type: 'chooseOption', target, option, options: { waitAfterOpen } }` — merged automatically, see below |
+| A drag gesture (mousedown, moved past a threshold, mouseup) | `{ type: 'dragTo', target, destination }` — `destination` is an element selector if one was under the pointer at mouseup, otherwise a raw `{ x, y }` point |
+
+Any step can also carry:
+- **`frame`** — present when the interaction happened inside a same-origin iframe (an iframe selector, or an array of them for nested iframes), so page-pilot knows which document to look in. See "iframe support" below.
+- **`gapBefore`** (ms) — present when there was a long pause before this step, a nudge that something might have been loading. See "Wait hints" below.
+- **`fragile: true`** — present when the selector had to fall back to a structural path. See "Selector generation" below.
 
 ### Custom dropdown detection (chooseOption)
 
@@ -94,6 +100,50 @@ and the second click follows within `chooseOptionMergeWindow` (default
 This is a heuristic, not a certainty — set `mergeChooseOption: false` if you'd
 rather always get two plain `click` steps and merge them yourself.
 
+### Drag detection (dragTo)
+
+A `mousedown` followed by enough movement (`dragThreshold`, default 10px)
+before `mouseup` counts as a drag rather than a click — browsers already
+suppress the `click` event themselves when the pointer moves that much
+between down and up, so there's no risk of double-recording the same
+gesture. A drag that ends inside a non-empty text selection is assumed to
+be the person selecting text, not dragging a UI element, and isn't
+recorded at all (there's no faithful way to "replay" a text selection).
+Set `recordDragTo: false` to turn this off entirely.
+
+### Wait hints (gapBefore)
+
+If a step follows a pause of `waitHintThreshold` (default 1200ms) or more,
+it gets a `gapBefore` (ms) field and fires `onWaitHint(gapMs, step)`. This
+is **not** an automatic `waitFor()` step — the recorder has no way to know
+what selector to wait for — just a nudge that a pause happened here, in
+case something was loading asynchronously and the generated script should
+have a `waitFor()` inserted at that point.
+
+```js
+const recorder = new PagePilotRecorder({
+  onWaitHint: (gapMs, step) => console.log(`${gapMs}ms pause before`, step),
+})
+```
+
+### iframe support
+
+Interactions inside a **same-origin** iframe are recorded like anything
+else, just with a `frame` field added so page-pilot knows which document to
+resolve the selector in:
+
+```json
+{ "type": "click", "target": "#confirm-btn", "frame": "#payment-iframe" }
+```
+
+For nested iframes, `frame` becomes an array (outermost to innermost). This
+"just works" on the page-pilot side — pass the recorded steps straight to
+`run()`, no manual adjustment needed. **Cross-origin iframes can't be
+observed at all** — that's a hard browser security limitation (the same
+reason no automation tool can reach into them without special server-side
+cooperation), not something this library can work around. Set
+`recordIframes: false` to disable iframe traversal entirely.
+
 ## What does NOT get recorded (by design)
 
 - **Your own recording controls** — if you build a custom UI (Start/Stop/
@@ -104,12 +154,11 @@ rather always get two plain `click` steps and merge them yourself.
   <button id="stop-btn" data-ppr-ignore>Stop</button>
   ```
 
-- **`waitFor()` steps** — the recorder has no way to know what's loading
-  asynchronously. Add these yourself where the generated script needs to
-  wait for something (see page-pilot's `waitFor()`).
-- **`hover`/`unhover`, `dragTo`** — real hover and drag gestures aren't
-  reliably distinguishable from incidental mouse movement without a lot of
-  false-positive risk, so v1 leaves these out. Add them by hand.
+- **`waitFor()` steps themselves** — see "Wait hints" above for the closest
+  thing to automatic help here; you still decide what to wait for.
+- **`hover`/`unhover`** — real hover gestures aren't reliably distinguishable
+  from incidental mouse movement without a lot of false-positive risk. Add
+  these by hand.
 
 Recording is a starting point, not a finished script — review the output,
 especially anything marked `fragile: true` (see below), before relying on
@@ -162,7 +211,12 @@ new PagePilotRecorder({
   scrollSettleDelay: 250, // ms of no scroll activity before a scroll step is recorded
   mergeChooseOption: true, // detect trigger-click + option-click into one chooseOption step
   chooseOptionMergeWindow: 4000, // max ms between the two clicks for them to still merge
+  recordDragTo: true,     // detect mousedown-move-mouseup gestures as dragTo steps
+  dragThreshold: 10,      // px of movement before a mousedown/mouseup pair counts as a drag
+  waitHintThreshold: 1200, // ms of silence before a step gets a gapBefore hint
+  recordIframes: true,    // also record interactions inside same-origin iframes
   onStep: (step) => {},   // called every time a step is recorded
+  onWaitHint: (gapMs, step) => {}, // called when a long pause is detected before a step
 })
 ```
 
