@@ -3,6 +3,24 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.2]
+
+### Fixed
+- Typing could still be silently lost in real-world use even after 0.1.1's
+  fix, whenever focus moved away from a field without a `focusout` event
+  being observably fired for it (e.g. moving focus into a native `<select>`
+  in some browsers/interaction patterns) — the recorder relied on
+  `focusin`/`focusout` exclusively, and that turned out to be fragile.
+  Every `click`/`change`/`keydown` now also checks `document.activeElement`
+  directly and flushes the typing buffer if it no longer matches, as a
+  safety net independent of whether a focus event was seen at all.
+
+### Changed
+- A plain click into a text field/textarea (just focusing it to type) is no
+  longer recorded as its own `click` step — it was pure noise, since
+  focusing the element is already implicit in the `type` step that follows,
+  and a redundant `click()` during replay could risk unwanted side effects.
+
 ## [0.1.1]
 
 ### Fixed

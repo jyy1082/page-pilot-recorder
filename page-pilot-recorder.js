@@ -17,7 +17,9 @@
  *   // paste the result straight into: await cursor.run(steps)
  *
  * What gets recorded:
- *   - click            → { type: 'click', target }
+ *   - click            → { type: 'click', target } (not recorded for a
+ *     plain click into a text field/textarea — that's just focusing it to
+ *     type, already implicit in the 'type' step)
  *   - typing            → { type: 'type', target, text }  (buffered until blur, not per-keystroke)
  *   - native <select>   → { type: 'select', target, value }
  *   - checkbox/radio    → { type: 'check', target, checked }
@@ -241,11 +243,28 @@ export class PagePilotRecorder {
     return !!el.closest?.('[data-ppr-ignore]');
   }
 
+  /**
+   * Safety net: flush the typing buffer if the element it's tracking no
+   * longer has focus, regardless of whether we ever saw a 'focusout' event
+   * for it. focusin/focusout are the primary mechanism, but relying on them
+   * exclusively turned out to be fragile in practice — real-world focus
+   * transitions (e.g. clicking to open a native <select>) don't always fire
+   * them in a way this recorder could observe reliably, silently losing
+   * whatever was typed. Checking document.activeElement directly, on every
+   * subsequent click/change/keydown, catches that regardless of the cause.
+   */
+  _flushIfBlurred() {
+    if (this._typingBuffer && document.activeElement !== this._typingBuffer.el) {
+      this._flushTyping();
+    }
+  }
+
   _onClick(e) {
     if (!this.recording) return;
     const el = e.target;
     if (!(el instanceof Element)) return;
     if (this._isIgnored(el)) return; // don't record clicks on the recorder's own controls
+    this._flushIfBlurred();
 
     // Checkboxes/radios are recorded as check() via the 'change' handler
     // instead — a raw click() would be semantically weaker (loses the
@@ -253,6 +272,12 @@ export class PagePilotRecorder {
     // recording a click here to avoid a duplicate/conflicting step.
     if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) return;
     if (el.tagName === 'SELECT') return; // handled by 'change'
+
+    // A plain click on a text field/textarea is just focusing it to type —
+    // that's already implicit in the upcoming 'type' step (page-pilot's
+    // type() focuses the element itself), so recording it separately would
+    // just be noise (and a redundant click() during replay).
+    if (this._isFormField(el)) return;
 
     this._flushTyping();
     const { selector, fragile } = generateSelector(el);
@@ -266,6 +291,7 @@ export class PagePilotRecorder {
     const el = e.target;
     if (!(el instanceof Element)) return;
     if (this._isIgnored(el)) return;
+    this._flushIfBlurred();
 
     if (el.tagName === 'SELECT') {
       const { selector, fragile } = generateSelector(el);
