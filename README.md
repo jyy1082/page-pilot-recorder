@@ -2,7 +2,7 @@
 
 [中文](./README.zh-CN.md) · **English**
 
-**Version 0.1.2** · see [CHANGELOG.md](./CHANGELOG.md) for release history
+**Version 0.1.3** · see [CHANGELOG.md](./CHANGELOG.md) for release history
 
 Records real user interactions on a page and turns them into a step array
 in exactly the shape [page-pilot](https://github.com/jyy1082/page-pilot)'s
@@ -148,6 +148,31 @@ new PagePilotRecorder({
   onStep: (step) => {},   // called every time a step is recorded
 })
 ```
+
+## Testing
+
+```bash
+npm install
+npm test
+```
+
+This runs a real-browser regression suite (Playwright + Chromium), not a
+simulated one — that distinction matters here specifically. The earliest
+bugs in this recorder (typing silently lost when a field was already
+focused before `start()`, typing lost when focus moved to a `<select>`
+without an observable `focusout`, a click on the recorder's own Stop button
+getting self-recorded) all passed a full jsdom-based test suite; jsdom's
+synthetic event dispatch doesn't reproduce real browser focus timing
+closely enough to catch them. `test/browser-test.mjs` drives an actual
+Chromium instance and interacts with a test page the way a real user would
+(`page.fill()`, `page.click()`, `page.selectOption()`,
+`keyboard.press()`), which is what actually exposed those bugs.
+
+If `npx playwright install` can't reach `cdn.playwright.dev` in your
+environment (some sandboxed/CI setups block it), the test script obtains a
+working Chromium a different way — via `@sparticuz/chromium`, which ships
+the browser binary inside its npm package tarball instead of a separate
+download step, and points Playwright at that executable directly.
 
 ## License
 

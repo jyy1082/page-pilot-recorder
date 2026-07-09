@@ -3,6 +3,23 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.3]
+
+### Added
+- A real-browser regression suite (`test/browser-test.mjs`, `npm test`)
+  using Playwright + Chromium, covering everything 0.1.1/0.1.2 fixed plus
+  the original working cases — driven by actual `page.click()`/`page.fill()`
+  /`page.selectOption()`/`keyboard.press()` interactions rather than
+  synthetic `dispatchEvent()` calls. This exists because the bugs fixed in
+  0.1.1 and 0.1.2 both passed a full jsdom-based suite; jsdom's event
+  simulation doesn't reproduce real browser focus timing closely enough to
+  have caught them before a real person did.
+- Since `npx playwright install` needs `cdn.playwright.dev`, which isn't
+  reachable in every environment (including the one these tests were
+  developed in), the suite obtains Chromium via `@sparticuz/chromium`
+  instead, which ships the binary inside its own npm tarball, and points
+  Playwright's `launch({ executablePath })` at it directly.
+
 ## [0.1.2]
 
 ### Fixed

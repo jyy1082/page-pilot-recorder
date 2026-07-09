@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>page-pilot-recorder test fixture</title>
+</head>
+<body>
+  <button id="submit-btn">Submit</button>
+  <button id="stop-btn" data-ppr-ignore>Stop</button>
+
+  <input id="name-input" type="text" />
+  <textarea id="bio"></textarea>
+
+  <select id="country-select">
+    <option value="">--</option>
+    <option value="us">US</option>
+    <option value="jp">JP</option>
+  </select>
+
+  <input id="agree-checkbox" type="checkbox" />
+  <input id="radio-a" type="radio" name="grp" value="a" />
+  <input id="radio-b" type="radio" name="grp" value="b" />
+
+  <div id="scroll-box" style="height:100px; overflow-y:auto;">
+    <div style="height:1000px;">tall content</div>
+  </div>
+
+  <script type="module">
+    import { PagePilotRecorder } from '/page-pilot-recorder.js';
+    window.__recorder = new PagePilotRecorder({ ui: false });
+    document.getElementById('stop-btn').addEventListener('click', () => {
+      window.__lastSteps = window.__recorder.stop();
+    });
+  </script>
+</body>
+</html>

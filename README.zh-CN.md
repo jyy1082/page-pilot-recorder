@@ -2,7 +2,7 @@
 
 **中文** · [English](./README.md)
 
-**版本 0.1.2** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
+**版本 0.1.3** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
 
 录制页面上真实的用户操作，转换成 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `run()` 能直接吃的步骤数组——录一遍，直接能回放，不用手写选择器。
 
@@ -123,6 +123,17 @@ new PagePilotRecorder({
   onStep: (step) => {},   // 每录到一步就会调用一次
 })
 ```
+
+## 测试
+
+```bash
+npm install
+npm test
+```
+
+跑的是**真实浏览器**的回归测试（Playwright + Chromium），不是模拟的——这个区别在这个项目上特别重要。之前几个最早的 bug（输入框在 `start()` 之前就已经聚焦时打字全丢、焦点转移到 `<select>` 时没有可观察到的 `focusout` 导致打字丢失、点击录制器自己的 Stop 按钮被自我录制），**全部**在 jsdom 测试套件里 100% 通过——jsdom 的合成事件派发没法精确复现真实浏览器的焦点时机，所以测不出来。`test/browser-test.mjs` 会真的开一个 Chromium 实例，用真人操作的方式跟测试页面交互（`page.fill()`、`page.click()`、`page.selectOption()`、`keyboard.press()`），这正是当初真正暴露出这些 bug 的方式。
+
+如果你的环境访问不了 `cdn.playwright.dev`（`npx playwright install` 会失败，一些沙盒/CI 环境会拦截这个域名），测试脚本换了一种方式拿可用的 Chromium——用 `@sparticuz/chromium` 这个包，它把浏览器二进制文件直接打包进了 npm 包本身（而不是走单独的下载步骤），然后让 Playwright 直接指向这个可执行文件。
 
 ## 协议
 
