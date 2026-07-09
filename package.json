@@ -1,0 +1,30 @@
+{
+  "name": "page-pilot-recorder",
+  "version": "0.1.0",
+  "description": "Records real user interactions on a page and turns them into a step array ready for page-pilot's run() — record once, play it back, no hand-written selectors.",
+  "type": "module",
+  "main": "page-pilot-recorder.js",
+  "module": "page-pilot-recorder.js",
+  "exports": {
+    ".": "./page-pilot-recorder.js"
+  },
+  "files": [
+    "page-pilot-recorder.js",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "browser-automation",
+    "recorder",
+    "selector-generation",
+    "test-recording",
+    "dom-automation",
+    "page-pilot"
+  ],
+  "license": "MIT",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=16"
+  }
+}

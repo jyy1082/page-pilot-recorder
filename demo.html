@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>page-pilot-recorder demo</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #111111; --text-muted: #6b7280;
+    --border: #e5e7eb; --border-strong: #d1d5db; --accent: #378ADD; --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 720px; margin: 3rem auto; padding: 0 1.5rem; color: var(--text); background: var(--bg);
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 0.25rem; }
+  h2 { font-size: 15px; font-weight: 600; margin: 2rem 0 0.5rem; }
+  p.sub { color: var(--text-muted); font-size: 14px; margin-top: 0; margin-bottom: 1.5rem; }
+  label { font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 4px; }
+  input[type="text"], select, textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong);
+    border-radius: var(--radius); font-size: 14px; background: #fff; color: var(--text);
+    font-family: inherit;
+  }
+  input[type="text"], select { height: 36px; }
+  textarea { min-height: 70px; resize: vertical; }
+  button {
+    height: 36px; padding: 0 14px; border: 1px solid var(--border-strong);
+    border-radius: var(--radius); background: #fff; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #f9fafb; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  .field { margin-bottom: 14px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 14px; }
+  .checkbox-row input { width: 16px; height: 16px; }
+  .actions { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  #steps-output {
+    width: 100%; min-height: 160px; font: 12px/1.5 ui-monospace, "SF Mono", Consolas, monospace;
+    padding: 10px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: #fafafa; white-space: pre; overflow: auto;
+  }
+  #status { font-size: 13px; color: var(--text-muted); min-height: 18px; margin-top: 4px; }
+  .panel { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 1.5rem; }
+</style>
+</head>
+<body>
+  <h1>page-pilot-recorder demo</h1>
+  <p class="sub">Press "Start recording", fill out the form below like you normally would (type a name, pick a country, write a note, check the box), then press "Stop". The recorder turns what you did into a step array — press "Replay" to watch page-pilot act it out automatically.</p>
+
+  <div class="panel">
+    <div class="actions">
+      <button id="record-btn" class="primary">Start recording</button>
+      <button id="stop-btn" disabled>Stop</button>
+      <button id="replay-btn" disabled>Replay recorded steps</button>
+      <button id="reset-btn">Reset form</button>
+    </div>
+    <p id="status">Idle.</p>
+  </div>
+
+  <div class="field">
+    <label for="f-name">Full name</label>
+    <input id="f-name" type="text" placeholder="Jane Cooper" />
+  </div>
+
+  <div class="field">
+    <label for="f-country">Country</label>
+    <select id="f-country">
+      <option value="">Select a country</option>
+      <option value="us">United states</option>
+      <option value="cn">China</option>
+      <option value="jp">Japan</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="f-note">Note</label>
+    <textarea id="f-note" placeholder="Anything you'd like to add..."></textarea>
+  </div>
+
+  <label class="checkbox-row">
+    <input id="f-agree" type="checkbox" />
+    Subscribe to product updates
+  </label>
+
+  <div style="display:flex; justify-content:flex-end; margin-bottom: 1.5rem;">
+    <button id="f-submit">Submit</button>
+  </div>
+
+  <h2>Recorded steps</h2>
+  <pre id="steps-output">(nothing recorded yet)</pre>
+
+  <script type="module">
+    import { PagePilotRecorder } from './page-pilot-recorder.js';
+    import { PagePilot } from './page-pilot.js';
+
+    const status = document.getElementById('status');
+    const say = (t) => { status.textContent = t; };
+    const output = document.getElementById('steps-output');
+
+    let recordedSteps = [];
+    const recorder = new PagePilotRecorder({
+      ui: false, // this demo builds its own controls instead of the floating panel
+      onStep: (step) => {
+        output.textContent = JSON.stringify(recorder.steps, null, 2);
+      },
+    });
+
+    document.getElementById('record-btn').addEventListener('click', () => {
+      recorder.start();
+      document.getElementById('record-btn').disabled = true;
+      document.getElementById('stop-btn').disabled = false;
+      document.getElementById('replay-btn').disabled = true;
+      output.textContent = '(recording...)';
+      say('Recording — interact with the form above.');
+    });
+
+    document.getElementById('stop-btn').addEventListener('click', () => {
+      recordedSteps = recorder.stop();
+      document.getElementById('record-btn').disabled = false;
+      document.getElementById('stop-btn').disabled = true;
+      document.getElementById('replay-btn').disabled = recordedSteps.length === 0;
+      output.textContent = recordedSteps.length
+        ? JSON.stringify(recordedSteps, null, 2)
+        : '(nothing was recorded — try interacting with the form before stopping)';
+      say(`Stopped. Recorded ${recordedSteps.length} step(s).`);
+    });
+
+    document.getElementById('replay-btn').addEventListener('click', async () => {
+      document.getElementById('replay-btn').disabled = true;
+      say('Replaying recorded steps...');
+      const cursor = new PagePilot({ showPageGlow: true, pageGlowTarget: 'body' });
+      await cursor.run(recordedSteps);
+      cursor.destroy();
+      say('Replay complete.');
+      document.getElementById('replay-btn').disabled = false;
+    });
+
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      document.getElementById('f-name').value = '';
+      document.getElementById('f-country').value = '';
+      document.getElementById('f-note').value = '';
+      document.getElementById('f-agree').checked = false;
+      say('Form reset.');
+    });
+  </script>
+</body>
+</html>
