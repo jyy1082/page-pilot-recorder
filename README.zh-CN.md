@@ -2,6 +2,8 @@
 
 **中文** · [English](./README.md)
 
+**版本 0.1.1** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
+
 录制页面上真实的用户操作，转换成 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `run()` 能直接吃的步骤数组——录一遍，直接能回放，不用手写选择器。
 
 这是一个配套工具，不是播放引擎的一部分。它只监听真实的（`isTrusted`）DOM 事件，自己从不派发任何事件——跟 page-pilot 正好相反：page-pilot 只派发合成事件、从不监听真实事件。
@@ -70,6 +72,11 @@ const recorder = new PagePilotRecorder({
 | 滚动窗口或某个容器，防抖到停下来才记录 | `{ type: 'scroll', target, options }`（滚到边缘时用 `{ to: 'top' \| 'bottom' }`，否则用 `{ amount }`） |
 
 ## 不会录到什么（有意为之）
+
+- **你自己写的录制控制按钮**——如果你不用内置的悬浮面板，而是自己写了 Start/Stop/Replay 这些按钮，记得给它们加上 `data-ppr-ignore`，不然点"Stop"这个动作本身也会被当成这次录制的最后一步录进去：
+  ```html
+  <button id="stop-btn" data-ppr-ignore>Stop</button>
+  ```
 
 - **`waitFor()` 步骤**——录制器没法知道页面上哪部分是异步加载的，这个需要你自己在生成的脚本里手动加上（用法参考 page-pilot 的 `waitFor()`）。
 - **`hover`/`unhover`、`dragTo`**——真实的悬停和拖拽手势跟"鼠标不小心划过去"很难可靠区分，容易产生大量误判，v1 先不做这块，需要自己手动加。

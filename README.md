@@ -2,6 +2,8 @@
 
 [中文](./README.zh-CN.md) · **English**
 
+**Version 0.1.1** · see [CHANGELOG.md](./CHANGELOG.md) for release history
+
 Records real user interactions on a page and turns them into a step array
 in exactly the shape [page-pilot](https://github.com/jyy1082/page-pilot)'s
 `run()` expects — record once, play it back, no hand-written selectors.
@@ -78,6 +80,14 @@ const recorder = new PagePilotRecorder({
 | Scrolling a window or a container, debounced until it settles | `{ type: 'scroll', target, options }` (uses `{ to: 'top' \| 'bottom' }` when it lands on an edge, `{ amount }` otherwise) |
 
 ## What does NOT get recorded (by design)
+
+- **Your own recording controls** — if you build a custom UI (Start/Stop/
+  Replay buttons) instead of using the built-in floating panel, mark them
+  with `data-ppr-ignore` so clicking "Stop" doesn't itself get recorded as
+  the last step of the session:
+  ```html
+  <button id="stop-btn" data-ppr-ignore>Stop</button>
+  ```
 
 - **`waitFor()` steps** — the recorder has no way to know what's loading
   asynchronously. Add these yourself where the generated script needs to

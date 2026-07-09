@@ -181,6 +181,17 @@ export class PagePilotRecorder {
     document.addEventListener('focusout', this._onFocusOut, true);
     document.addEventListener('keydown', this._onKeyDown, true);
     document.addEventListener('scroll', this._onScroll, true);
+
+    // If a form field already has focus at the moment recording starts (the
+    // person clicked into it before pressing "Start", or it was autofocused),
+    // no 'focusin' will ever fire for it during this session — nothing would
+    // trigger the typing buffer to be created, silently losing anything they
+    // type. Seed the buffer immediately as if a focusin had just happened.
+    const active = document.activeElement;
+    if (active instanceof Element && this._isFormField(active)) {
+      this._beginTypingBuffer(active);
+    }
+
     if (this.opts.ui) this._showUi();
     return this;
   }
@@ -218,10 +229,23 @@ export class PagePilotRecorder {
     return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
   }
 
+  /**
+   * True for elements that shouldn't be recorded at all — the recorder's
+   * own floating UI, or anything you've marked with a data-ppr-ignore
+   * attribute (put it on your own Start/Stop/Replay controls if you build a
+   * custom UI instead of using the built-in one, so pressing Stop doesn't
+   * get recorded as a click step in the middle of your session).
+   */
+  _isIgnored(el) {
+    if (this._uiEl && this._uiEl.contains(el)) return true;
+    return !!el.closest?.('[data-ppr-ignore]');
+  }
+
   _onClick(e) {
     if (!this.recording) return;
     const el = e.target;
     if (!(el instanceof Element)) return;
+    if (this._isIgnored(el)) return; // don't record clicks on the recorder's own controls
 
     // Checkboxes/radios are recorded as check() via the 'change' handler
     // instead — a raw click() would be semantically weaker (loses the
@@ -241,6 +265,7 @@ export class PagePilotRecorder {
     if (!this.recording) return;
     const el = e.target;
     if (!(el instanceof Element)) return;
+    if (this._isIgnored(el)) return;
 
     if (el.tagName === 'SELECT') {
       const { selector, fragile } = generateSelector(el);
@@ -265,6 +290,11 @@ export class PagePilotRecorder {
     if (!this.recording) return;
     const el = e.target;
     if (!(el instanceof Element) || !this._isFormField(el)) return;
+    this._beginTypingBuffer(el);
+  }
+
+  /** Establish a fresh typing buffer for a form field, flushing any prior one first. */
+  _beginTypingBuffer(el) {
     this._flushTyping();
     const { selector, fragile } = generateSelector(el);
     this._typingBuffer = {
