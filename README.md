@@ -2,7 +2,7 @@
 
 [中文](./README.zh-CN.md) · **English**
 
-**Version 0.4.1** · see [CHANGELOG.md](./CHANGELOG.md) for release history
+**Version 0.5.0** · see [CHANGELOG.md](./CHANGELOG.md) for release history
 
 Records real user interactions on a page and turns them into a step array
 in exactly the shape [page-pilot](https://github.com/jyy1082/page-pilot)'s
@@ -198,22 +198,29 @@ of these first produces a selector that uniquely matches the element:
    stable even though they weren't put there specifically for testing
 4. `aria-label`
 5. `name` attribute
-6. Non-utility class names (filters out Tailwind-style utility classes like
+6. For `<button>`/`<a>`/`role="button"` elements: the visible text content,
+   if it's reasonably short (≤60 chars) — often the most human-recognizable
+   and redesign-resistant identifier a button has, and frequently present
+   even when there's no id/aria-label/data attribute at all. Produces a
+   `{ selector: 'button', text: '...' }` target (or with `index` added, the
+   same way as duplicate ids, if more than one element shares that exact
+   text — e.g. a "Delete" button repeated in every row of a list).
+7. Non-utility class names (filters out Tailwind-style utility classes like
    `p-2`, `hover:bg-blue-500`, minified single-letter classes, etc.)
-7. A structural `nth-of-type` path as a last resort, rooted at the nearest
+8. A structural `nth-of-type` path as a last resort, rooted at the nearest
    ancestor with an `id` if one exists
 
-Steps that had to fall back to a duplicate-id index or option 7 carry a
-`fragile: true` flag — these are the ones most likely to break if the
-page's markup changes even slightly. If you see one, it's usually worth
-adding a `data-testid` to that element and re-recording, rather than
-shipping the structural path as-is.
+Steps that had to fall back to a duplicate-id index, duplicate text, or
+option 8 (the structural path) carry a `fragile: true` flag — these are the
+ones most likely to break if the page's markup changes even slightly. If
+you see one, it's usually worth adding a `data-testid` to that element and
+re-recording, rather than shipping the structural path as-is.
 
 ```js
 import { generateSelector } from 'page-pilot-recorder'
 
-const { selector, fragile, index } = generateSelector(document.querySelector('.some-el'))
-// index is only present when disambiguating a duplicate id
+const { selector, fragile, index, text } = generateSelector(document.querySelector('.some-el'))
+// index/text are only present when disambiguating a duplicate id or matching by button/link text
 ```
 
 ## API

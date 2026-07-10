@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <title>page-pilot-recorder test fixture</title>
+<style>body { user-select: none; }</style>
 </head>
 <body>
   <button id="submit-btn">Submit</button>
@@ -38,6 +39,11 @@
   <div id="drag-source" style="position:absolute; left:20px; top:400px; width:60px; height:30px; background:#378ADD;">Drag</div>
   <div id="drag-target" style="position:absolute; left:300px; top:400px; width:100px; height:60px; border:2px dashed #999;">Drop here</div>
 
+  <button>No Identifiers Button</button>
+  <button>Repeated Label</button>
+  <button>Repeated Label</button>
+  <a href="javascript:void(0)">A Plain Link</a>
+
   <iframe id="test-iframe" src="/test/iframe-fixture.html" style="width:300px; height:150px; border:1px solid #ccc;"></iframe>
 
   <script type="module">
@@ -45,6 +51,12 @@
     window.__recorder = new PagePilotRecorder({ ui: false });
     document.getElementById('stop-btn').addEventListener('click', () => {
       window.__lastSteps = window.__recorder.stop();
+    });
+
+    window.__clickedTexts = [];
+    document.querySelectorAll('button, a').forEach((el) => {
+      if (el.id) return; // only track the plain no-id ones added for text-matching tests
+      el.addEventListener('click', () => window.__clickedTexts.push(el.textContent.trim()));
     });
 
     const planTrigger = document.getElementById('plan-trigger');

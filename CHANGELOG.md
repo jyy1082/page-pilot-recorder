@@ -3,6 +3,23 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] — Text-based matching for buttons/links
+
+### Added
+- `generateSelector()` now tries the visible text content of `<button>`,
+  `<a>`, and `role="button"` elements (if reasonably short) as a selector
+  tier, producing a `{ selector: 'button', text: '...' }` target — often
+  the most human-recognizable and redesign-resistant identifier a button
+  has, and frequently the only thing available when there's no id/
+  aria-label/data attribute at all. When more than one element shares the
+  exact same text, it's disambiguated by position (adding `index`), the
+  same approach already used for duplicate ids.
+  Requires page-pilot 0.12.0+, which understands this target shape.
+- 4 new real-browser tests: unique text matching, duplicate-text
+  disambiguation, a plain `<a>` link with no attributes, and a full record
+  → replay round trip confirming the exact duplicate-text element that was
+  clicked during recording is the one clicked again on replay.
+
 ## [0.4.1]
 
 ### Documentation

@@ -2,7 +2,7 @@
 
 **中文** · [English](./README.md)
 
-**版本 0.4.1** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
+**版本 0.5.0** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
 
 录制页面上真实的用户操作，转换成 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `run()` 能直接吃的步骤数组——录一遍，直接能回放，不用手写选择器。
 
@@ -135,16 +135,17 @@ const recorder = new PagePilotRecorder({
 3. 其他任意 `data-*` 属性（比如自定义下拉选项上的 `data-value`）——这类属性通常是应用自己的逻辑要读取的，即使不是专门为测试而加，也往往很稳定
 4. `aria-label`
 5. `name` 属性
-6. 非工具类的 class 名（会过滤掉 Tailwind 那种工具类，比如 `p-2`、`hover:bg-blue-500`，以及压缩后的单字母 class 等）
-7. 实在不行，兜底用 `nth-of-type` 结构路径，如果附近有带 `id` 的祖先元素，会从那里开始算
+6. 对 `<button>`/`<a>`/`role="button"` 这类元素：它的可见文字内容，只要不太长（60 字符以内）——这往往是一个按钮最容易被人认出来、也最不容易在改版中被换掉的标识，而且经常在没有 id/aria-label/data 属性的情况下依然存在。生成的是 `{ selector: 'button', text: '...' }` 这种形式（如果好几个元素文字完全一样——比如列表每一行都有个"删除"按钮——处理方式跟重复 id 一样，再加一个 `index`）。
+7. 非工具类的 class 名（会过滤掉 Tailwind 那种工具类，比如 `p-2`、`hover:bg-blue-500`，以及压缩后的单字母 class 等）
+8. 实在不行，兜底用 `nth-of-type` 结构路径，如果附近有带 `id` 的祖先元素，会从那里开始算
 
-如果某个步骤走到了"重复 id 按位置区分"或者第 7 级结构路径兜底方案，会带上 `fragile: true` 标记——这些是页面结构稍微一变就最容易失效的。看到这个标记，通常更值得做的是给那个元素加一个 `data-testid` 再重新录一遍，而不是就这么把结构路径原样用到生产环境里。
+如果某个步骤走到了"重复 id 按位置区分"、"重复文字按位置区分"，或者第 8 级结构路径兜底方案，会带上 `fragile: true` 标记——这些是页面结构稍微一变就最容易失效的。看到这个标记，通常更值得做的是给那个元素加一个 `data-testid` 再重新录一遍，而不是就这么把结构路径原样用到生产环境里。
 
 ```js
 import { generateSelector } from 'page-pilot-recorder'
 
-const { selector, fragile, index } = generateSelector(document.querySelector('.some-el'))
-// index 只有在区分重复 id 的时候才会出现
+const { selector, fragile, index, text } = generateSelector(document.querySelector('.some-el'))
+// index/text 只有在区分重复 id 或者按钮/链接文字匹配的时候才会出现
 ```
 
 ## API

@@ -310,6 +310,57 @@ async function main() {
     await page.close();
   }
 
+  console.log('=== NEW: buttons/links with no id/attributes get matched by their text ===');
+  {
+    const page = await freshPage();
+    await page.getByText('No Identifiers Button', { exact: true }).click();
+    const steps = await stopAndGetSteps(page);
+    const step = steps.find((s) => s.type === 'click');
+    check('target is an object with a text field, not a fragile structural selector', typeof step.target === 'object' && step.target.text === 'No Identifiers Button');
+    check('selector is just the tag name', step.target.selector === 'button');
+    check('not marked fragile since the text alone was unique', !step.fragile);
+    await page.close();
+  }
+
+  console.log('=== NEW: duplicate text is disambiguated by index, same as duplicate ids ===');
+  {
+    const page = await freshPage();
+    await page.getByText('Repeated Label', { exact: true }).nth(1).click(); // the second one
+    const steps = await stopAndGetSteps(page);
+    const step = steps.find((s) => s.type === 'click');
+    check('target has both text and index', step.target.text === 'Repeated Label' && step.target.index === 1);
+    check('marked fragile (duplicate visible text is worth a second look)', step.fragile === true);
+    await page.close();
+  }
+
+  console.log('=== NEW: a plain <a> link with no attributes also gets a text-based target ===');
+  {
+    const page = await freshPage();
+    await page.getByText('A Plain Link', { exact: true }).click();
+    const steps = await stopAndGetSteps(page);
+    const step = steps.find((s) => s.type === 'click');
+    check('link selector is "a" with the matching text', step.target.selector === 'a' && step.target.text === 'A Plain Link');
+    await page.close();
+  }
+
+  console.log('=== NEW: text-based target round trip actually clicks the right element on replay ===');
+  {
+    const page = await freshPage();
+    await page.getByText('Repeated Label', { exact: true }).nth(1).click(); // second one, specifically
+    const steps = await stopAndGetSteps(page);
+
+    const clickedTexts = await page.evaluate(async (recordedSteps) => {
+      window.__clickedTexts = [];
+      const { PagePilot } = await import('/page-pilot.js');
+      const cursor = new PagePilot({ moveDuration: 4, clickPause: 4 });
+      await cursor.run(recordedSteps);
+      cursor.destroy();
+      return window.__clickedTexts;
+    }, steps);
+    check('replay clicks exactly one element, the correct duplicate', clickedTexts.length === 1 && clickedTexts[0] === 'Repeated Label');
+    await page.close();
+  }
+
   console.log('=== SECURITY: password fields are never recorded ===');
   {
     const page = await freshPage();
