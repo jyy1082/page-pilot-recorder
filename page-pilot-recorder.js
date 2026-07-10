@@ -251,7 +251,7 @@ export class PagePilotRecorder {
     // This descends into iframes too, since a focused iframe shows up as
     // the top document's activeElement being the <iframe> itself.
     const active = this._deepActiveElement(document);
-    if (active && active.nodeType === 1 && this._isFormField(active)) {
+    if (active && active.nodeType === 1 && this._isFormField(active) && !this._isPasswordField(active)) {
       this._beginTypingBuffer(active);
     }
 
@@ -410,6 +410,13 @@ export class PagePilotRecorder {
 
   _isFormField(el) {
     return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
+  }
+
+  /** Password fields are never recorded — there's no legitimate reason a
+   * generated automation script should contain someone's typed password,
+   * and this is deliberately NOT a configurable option. */
+  _isPasswordField(el) {
+    return el.tagName === 'INPUT' && el.type === 'password';
   }
 
   /**
@@ -600,6 +607,7 @@ export class PagePilotRecorder {
     if (!this.recording) return;
     const el = e.target;
     if (!(el && el.nodeType === 1) || !this._isFormField(el)) return;
+    if (this._isPasswordField(el)) return; // never buffer/record what's typed into a password field
     this._beginTypingBuffer(el);
   }
 

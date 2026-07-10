@@ -2,7 +2,7 @@
 
 **中文** · [English](./README.md)
 
-**版本 0.3.1** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
+**版本 0.3.2** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
 
 录制页面上真实的用户操作，转换成 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `run()` 能直接吃的步骤数组——录一遍，直接能回放，不用手写选择器。
 
@@ -110,6 +110,7 @@ const recorder = new PagePilotRecorder({
 
 ## 不会录到什么（有意为之）
 
+- **密码框**——`<input type="password">` 永远不会被录制，连一条带真实值的 `type` 步骤都不会有。这是硬性排除，不是可以配置的选项——生成的自动化脚本里没有任何正当理由应该包含别人打的密码。
 - **你自己写的录制控制按钮**——如果你不用内置的悬浮面板，而是自己写了 Start/Stop/Replay 这些按钮，记得给它们加上 `data-ppr-ignore`，不然点"Stop"这个动作本身也会被当成这次录制的最后一步录进去：
   ```html
   <button id="stop-btn" data-ppr-ignore>Stop</button>

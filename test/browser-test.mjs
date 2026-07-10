@@ -278,6 +278,31 @@ async function main() {
     await page.close();
   }
 
+  console.log('=== SECURITY: password fields are never recorded ===');
+  {
+    const page = await freshPage();
+    await page.click('#password-field');
+    await page.keyboard.type('super-secret-123');
+    await page.click('#submit-btn');
+    const steps = await stopAndGetSteps(page);
+    check('no type step exists for the password field', !steps.some((s) => s.type === 'type' && s.target?.includes('password')));
+    check('the password itself never appears anywhere in the recorded output', !JSON.stringify(steps).includes('super-secret-123'));
+    await page.close();
+  }
+
+  console.log('=== SECURITY: password field already focused before start() is still excluded ===');
+  {
+    const page = await browser.newPage();
+    await page.goto(`${base}/test/fixture.html`);
+    await page.click('#password-field');
+    await page.evaluate(() => window.__recorder.start());
+    await page.keyboard.type('another-secret');
+    await page.click('#submit-btn');
+    const steps = await stopAndGetSteps(page);
+    check('still excluded even when focused before start()', !JSON.stringify(steps).includes('another-secret'));
+    await page.close();
+  }
+
   console.log('=== REGRESSION: multi-line textarea typing (Enter is a newline, not a shortcut) ===');
   {
     const page = await freshPage();

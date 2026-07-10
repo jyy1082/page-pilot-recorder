@@ -2,7 +2,7 @@
 
 [中文](./README.zh-CN.md) · **English**
 
-**Version 0.3.1** · see [CHANGELOG.md](./CHANGELOG.md) for release history
+**Version 0.3.2** · see [CHANGELOG.md](./CHANGELOG.md) for release history
 
 Records real user interactions on a page and turns them into a step array
 in exactly the shape [page-pilot](https://github.com/jyy1082/page-pilot)'s
@@ -146,6 +146,10 @@ cooperation), not something this library can work around. Set
 
 ## What does NOT get recorded (by design)
 
+- **Password fields** — `<input type="password">` is never recorded, not
+  even as a `type` step with the actual value. This is a hard exclusion,
+  not a configurable option — there's no legitimate reason a generated
+  automation script should contain someone's typed password.
 - **Your own recording controls** — if you build a custom UI (Start/Stop/
   Replay buttons) instead of using the built-in floating panel, mark them
   with `data-ppr-ignore` so clicking "Stop" doesn't itself get recorded as

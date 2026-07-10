@@ -3,6 +3,17 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2]
+
+### Security
+- `<input type="password">` is now never recorded — a hard, non-configurable
+  exclusion. Previously any input, regardless of type, was treated as a
+  typeable field, meaning a typed password could end up verbatim inside a
+  recorded `type` step. Excluded both from the normal `focusin`-triggered
+  buffering and from the "field already focused before `start()`" seeding
+  path. Verified with 2 new real-browser tests confirming the actual
+  password text never appears anywhere in the recorded output.
+
 ## [0.3.1]
 
 ### Fixed
