@@ -2,7 +2,7 @@
 
 [中文](./README.zh-CN.md) · **English**
 
-**Version 0.4.0** · see [CHANGELOG.md](./CHANGELOG.md) for release history
+**Version 0.4.1** · see [CHANGELOG.md](./CHANGELOG.md) for release history
 
 Records real user interactions on a page and turns them into a step array
 in exactly the shape [page-pilot](https://github.com/jyy1082/page-pilot)'s
@@ -159,7 +159,21 @@ cooperation), not something this library can work around. Set
   ```
 
 - **`waitFor()` steps themselves** — see "Wait hints" above for the closest
-  thing to automatic help here; you still decide what to wait for.
+  thing to automatic help here; you still decide what to wait for. This
+  matters most on pages that update content asynchronously without a full
+  navigation (most modern apps): if a recorded step clicks something that
+  triggers such an update, and the very next step depends on that update
+  having landed, replaying the raw recording can run ahead of it and hit a
+  stale/about-to-be-replaced element. If you hit that, insert a
+  [page-pilot](https://github.com/jyy1082/page-pilot) `waitFor()` step
+  between them — `{ state: 'gone' }` to wait for the old element to
+  actually disappear first, or the default (wait for something to appear)
+  for the new content:
+  ```js
+  { type: 'click', target: '#save-btn' },
+  { type: 'waitFor', target: '#save-btn', options: { state: 'gone' } },
+  { type: 'waitFor', target: '#saved-confirmation' },
+  ```
 - **`hover`/`unhover`** — real hover gestures aren't reliably distinguishable
   from incidental mouse movement without a lot of false-positive risk. Add
   these by hand.

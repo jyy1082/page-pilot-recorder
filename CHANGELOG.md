@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.1]
+
+### Documentation
+- Added guidance on a real race condition: on pages that update content
+  asynchronously without a full navigation, replaying a step right after
+  one that triggers such an update can run ahead of it and hit a stale
+  element. Points to page-pilot 0.11.0's new `waitFor(target, { state:
+  'gone' })`, which waits for the old element to actually disappear (or the
+  new one to appear) before continuing, instead of guessing a fixed delay.
+
 ## [0.4.0] — Duplicate-id disambiguation
 
 ### Added

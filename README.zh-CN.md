@@ -2,7 +2,7 @@
 
 **中文** · [English](./README.md)
 
-**版本 0.4.0** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
+**版本 0.4.1** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
 
 录制页面上真实的用户操作，转换成 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `run()` 能直接吃的步骤数组——录一遍，直接能回放，不用手写选择器。
 
@@ -116,7 +116,12 @@ const recorder = new PagePilotRecorder({
   <button id="stop-btn" data-ppr-ignore>Stop</button>
   ```
 
-- **`waitFor()` 步骤本身**——上面"等待提示"那部分是目前能做到的最接近自动化的辅助，具体要等什么还是得你自己决定。
+- **`waitFor()` 步骤本身**——上面"等待提示"那部分是目前能做到的最接近自动化的辅助，具体要等什么还是得你自己决定。这一点在**不整页跳转、只是异步更新内容**的页面上（现在大多数应用都是这样）尤其重要：如果录制的某一步点击触发了这种异步更新，紧接着的下一步又依赖这个更新已经生效，直接回放原始录制内容，很可能在更新完成之前就跑到了下一步，点到一个即将被替换掉的旧元素上。遇到这种情况，在两步之间手动插一条 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `waitFor()`——用 `{ state: 'gone' }` 等旧元素先真正消失，或者用默认模式（等新内容出现）：
+  ```js
+  { type: 'click', target: '#save-btn' },
+  { type: 'waitFor', target: '#save-btn', options: { state: 'gone' } },
+  { type: 'waitFor', target: '#saved-confirmation' },
+  ```
 - **`hover`/`unhover`**——真实的悬停手势跟"鼠标不小心划过去"很难可靠区分，容易产生大量误判，需要自己手动加。
 
 录制出来的是一个起点，不是一份可以直接上生产的成品脚本——用之前review一下，尤其是标了 `fragile: true` 的那些步骤（见下文）。
