@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1]
+
+### Documentation
+- Synced vendored page-pilot.js (used by this repo's own test suite) to
+  0.12.1, which fixes `waitFor()` incorrectly polling a stale iframe
+  document after that iframe navigates/reloads its own content mid-wait.
+  No change to this package's own code.
+
 ## [0.5.0] — Text-based matching for buttons/links
 
 ### Added
