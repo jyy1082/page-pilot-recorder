@@ -2,7 +2,7 @@
 
 **中文** · [English](./README.md)
 
-**版本 0.3.2** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
+**版本 0.4.0** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
 
 录制页面上真实的用户操作，转换成 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `run()` 能直接吃的步骤数组——录一遍，直接能回放，不用手写选择器。
 
@@ -125,7 +125,7 @@ const recorder = new PagePilotRecorder({
 
 每个录制步骤的 `target`，是按下面这个顺序依次尝试，谁能生成一个**唯一匹配这个元素**的选择器就用谁：
 
-1. `id`
+1. `id`——如果这个 `id` 其实并不唯一（真实网站上重复 `id` 相当常见——虽然是不合规的 HTML，但浏览器并不会阻止），不会直接放弃这个 id，而是在"共享这个 id 的所有元素"里按位置区分开来。这种情况生成的是一个 `{ selector, index }` 对象,而不是普通字符串,同样会标上 `fragile: true`。
 2. `data-testid` / `data-cy` / `data-test` / `data-qa`
 3. 其他任意 `data-*` 属性（比如自定义下拉选项上的 `data-value`）——这类属性通常是应用自己的逻辑要读取的，即使不是专门为测试而加，也往往很稳定
 4. `aria-label`
@@ -133,12 +133,13 @@ const recorder = new PagePilotRecorder({
 6. 非工具类的 class 名（会过滤掉 Tailwind 那种工具类，比如 `p-2`、`hover:bg-blue-500`，以及压缩后的单字母 class 等）
 7. 实在不行，兜底用 `nth-of-type` 结构路径，如果附近有带 `id` 的祖先元素，会从那里开始算
 
-如果某个步骤走到了第 7 级兜底方案，会带上 `fragile: true` 标记——这些是页面结构稍微一变就最容易失效的。看到这个标记，通常更值得做的是给那个元素加一个 `data-testid` 再重新录一遍，而不是就这么把结构路径原样用到生产环境里。
+如果某个步骤走到了"重复 id 按位置区分"或者第 7 级结构路径兜底方案，会带上 `fragile: true` 标记——这些是页面结构稍微一变就最容易失效的。看到这个标记，通常更值得做的是给那个元素加一个 `data-testid` 再重新录一遍，而不是就这么把结构路径原样用到生产环境里。
 
 ```js
 import { generateSelector } from 'page-pilot-recorder'
 
-const { selector, fragile } = generateSelector(document.querySelector('.some-el'))
+const { selector, fragile, index } = generateSelector(document.querySelector('.some-el'))
+// index 只有在区分重复 id 的时候才会出现
 ```
 
 ## API

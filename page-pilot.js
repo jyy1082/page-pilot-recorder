@@ -452,8 +452,38 @@ export class PagePilot {
     }, 200);
   }
 
-  _center(el) {
+  /**
+   * getBoundingClientRect() is relative to the element's OWN window's
+   * viewport — for an element inside a same-origin iframe, that's the
+   * iframe's viewport, not the top page's. The cursor dot, ripples, and
+   * highlight boxes all live in the TOP document (position: fixed there),
+   * so their coordinates need to be in top-level-viewport terms. This walks
+   * up through any iframe ancestors (win.frameElement), accumulating each
+   * iframe's own offset within ITS parent's viewport, to get there.
+   */
+  _topLevelRect(el) {
     const rect = el.getBoundingClientRect();
+    let win = (el.ownerDocument || document).defaultView;
+    let offsetX = 0;
+    let offsetY = 0;
+    while (win && win !== window && win.frameElement) {
+      const frameRect = win.frameElement.getBoundingClientRect();
+      offsetX += frameRect.left;
+      offsetY += frameRect.top;
+      win = win.parent;
+    }
+    return {
+      top: rect.top + offsetY,
+      left: rect.left + offsetX,
+      right: rect.right + offsetX,
+      bottom: rect.bottom + offsetY,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  _center(el) {
+    const rect = this._topLevelRect(el);
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   }
 
@@ -499,7 +529,7 @@ export class PagePilot {
     if (!this.opts.highlightEnabled || !el || !el.getBoundingClientRect) return;
     this._removeHighlightBox(el);
 
-    let rect = el.getBoundingClientRect();
+    let rect = this._topLevelRect(el);
     if (rect.width === 0 && rect.height === 0 && fallbackRect) rect = fallbackRect;
     if (rect.width === 0 && rect.height === 0) return; // nothing visible to draw around
 
@@ -552,8 +582,8 @@ export class PagePilot {
     this._repositionScheduled = true;
     requestAnimationFrame(() => {
       for (const [el, box] of this._highlights) {
-        if (!document.body.contains(el)) { this._removeHighlightBox(el); continue; }
-        const rect = el.getBoundingClientRect();
+        if (!el.isConnected) { this._removeHighlightBox(el); continue; }
+        const rect = this._topLevelRect(el);
         if (rect.width === 0 && rect.height === 0) {
           // Element (or an ancestor) is hidden right now — hide the box
           // rather than snapping it to (0, 0), but keep tracking it in case
@@ -573,7 +603,7 @@ export class PagePilot {
   }
 
   async _ensureVisible(el) {
-    const rect = el.getBoundingClientRect();
+    const rect = this._topLevelRect(el);
     const inView = rect.top >= 0 && rect.bottom <= window.innerHeight &&
       rect.left >= 0 && rect.right <= window.innerWidth;
     if (!inView) {
@@ -642,7 +672,7 @@ export class PagePilot {
 
   async _moveTo(el) {
     await this._ensureVisible(el);
-    const rect = el.getBoundingClientRect();
+    const rect = this._topLevelRect(el);
     if (rect.width === 0 && rect.height === 0) {
       // The target is hidden (display:none, detached, or a zero-size ancestor)
       // right now — most likely a menu/dropdown whose open state doesn't
@@ -702,13 +732,63 @@ export class PagePilot {
   }
 
   /** Resolve a target that may be an Element, a selector string, or {x, y}. */
+  /** Resolve a target that may be an Element, a selector string, or
+   * { selector, frame } for an element inside a same-origin iframe, or
+   * { selector, index } to pick the Nth match of a selector that matches
+   * more than one element — page-pilot-recorder produces this for elements
+   * sharing a duplicate `id` (invalid HTML, but common on real sites),
+   * where the plain #id selector alone can't tell them apart. `frame` is an
+   * iframe selector (or an array of them, for nested iframes) — see
+   * _resolveFrameDocument. */
   _resolve(target) {
+    if (target && typeof target === 'object' && 'selector' in target) {
+      const doc = this._resolveFrameDocument(target.frame);
+      const where = target.frame ? ` inside frame "${JSON.stringify(target.frame)}"` : '';
+      if (target.index !== undefined) {
+        const matches = doc.querySelectorAll(target.selector);
+        const el = matches[target.index];
+        if (!el) {
+          throw new Error(
+            `PagePilot: no element at index ${target.index} matching "${target.selector}"${where} ` +
+            `(found ${matches.length} match(es))`
+          );
+        }
+        return el;
+      }
+      const el = doc.querySelector(target.selector);
+      if (!el) throw new Error(`PagePilot: no element matches "${target.selector}"${where}`);
+      return el;
+    }
     if (typeof target === 'string') {
       const el = document.querySelector(target);
       if (!el) throw new Error(`PagePilot: no element matches "${target}"`);
       return el;
     }
     return target;
+  }
+
+  /** Walk through a chain of same-origin iframes (a selector, or an array of
+   * them for nested iframes) and return the Document at the end of it. No
+   * frame (null/undefined) just means the top document. */
+  _resolveFrameDocument(frame) {
+    if (!frame) return document;
+    const chain = Array.isArray(frame) ? frame : [frame];
+    let doc = document;
+    for (const sel of chain) {
+      const iframeEl = doc.querySelector(sel);
+      if (!iframeEl) throw new Error(`PagePilot: no iframe matches "${sel}"`);
+      let inner;
+      try {
+        inner = iframeEl.contentDocument;
+      } catch {
+        inner = null;
+      }
+      if (!inner) {
+        throw new Error(`PagePilot: iframe "${sel}" has no accessible document (cross-origin, or not loaded yet)`);
+      }
+      doc = inner;
+    }
+    return doc;
   }
 
   /** Move the cursor to a target without clicking. */
@@ -761,7 +841,7 @@ export class PagePilot {
   /** Shared click animation + execution, reused by click() and chooseOption(). */
   async _animatedClick(el) {
     const { x, y } = await this._moveTo(el);
-    const preClickRect = el.getBoundingClientRect();
+    const preClickRect = this._topLevelRect(el);
     this._ripple(x, y);
     const prevTransform = el.style.transform;
     el.style.transition = el.style.transition || 'transform 120ms ease-out';
@@ -1040,6 +1120,12 @@ export class PagePilot {
       const step = { type: 'waitFor', target, label: options.label };
       this.opts.onBeforeStep?.(step);
 
+      // Support target as a function, a plain selector string, or
+      // { selector, frame } for polling inside a same-origin iframe.
+      const isFrameTarget = target && typeof target === 'object' && 'selector' in target;
+      const queryDoc = isFrameTarget ? this._resolveFrameDocument(target.frame) : document;
+      const querySelector = isFrameTarget ? target.selector : target;
+
       const start = performance.now();
       const found = await new Promise((resolve, reject) => {
         let timer;
@@ -1048,7 +1134,7 @@ export class PagePilot {
         const tick = () => {
           let el = null;
           try {
-            el = typeof target === 'function' ? target() : document.querySelector(target);
+            el = typeof target === 'function' ? target() : queryDoc.querySelector(querySelector);
           } catch {
             el = null;
           }
@@ -1063,7 +1149,7 @@ export class PagePilot {
           }
           if (performance.now() - start > timeout) {
             this._pendingRejects.delete(abort);
-            const desc = typeof target === 'string' ? `"${target}"` : 'the given condition';
+            const desc = typeof querySelector === 'string' ? `"${querySelector}"` : 'the given condition';
             reject(new Error(`PagePilot: waitFor timed out after ${timeout}ms waiting for ${desc}`));
             return;
           }
@@ -1095,21 +1181,32 @@ export class PagePilot {
    * rejecting — check individual step methods directly if you need to know
    * a sequence was interrupted rather than completed. */
   async run(steps) {
+    // If a recorded step happened inside a same-origin iframe (see
+    // page-pilot-recorder's `frame` field), wrap its string selector(s) as
+    // { selector, frame } so _resolve() looks in the right document. Only
+    // strings get wrapped — an already-resolved Element or a raw {x,y}
+    // point (dragTo's destination) pass through untouched.
+    const withFrame = (val, frame) => {
+      if (!frame) return val;
+      if (typeof val === 'string') return { selector: val, frame };
+      if (val && typeof val === 'object' && 'selector' in val && !('frame' in val)) return { ...val, frame };
+      return val; // already has its own frame, or is an Element/raw {x,y} point — leave as-is
+    };
     try {
       for (const s of steps) {
-        if (s.type === 'click') await this.click(s.target, s.label);
-        else if (s.type === 'type') await this.type(s.target, s.text, s.label);
-        else if (s.type === 'move') await this.moveTo(s.target);
-        else if (s.type === 'scroll') await this.scroll(s.target, s.options || {});
-        else if (s.type === 'select') await this.select(s.target, s.value, s.label);
-        else if (s.type === 'check') await this.check(s.target, s.checked, s.label);
-        else if (s.type === 'chooseOption') await this.chooseOption(s.target, s.option, s.options || {});
-        else if (s.type === 'pressKey') await this.pressKey(s.target, s.key, s.options || {});
-        else if (s.type === 'hover') await this.hover(s.target, s.label);
+        if (s.type === 'click') await this.click(withFrame(s.target, s.frame), s.label);
+        else if (s.type === 'type') await this.type(withFrame(s.target, s.frame), s.text, s.label);
+        else if (s.type === 'move') await this.moveTo(withFrame(s.target, s.frame));
+        else if (s.type === 'scroll') await this.scroll(withFrame(s.target, s.frame), s.options || {});
+        else if (s.type === 'select') await this.select(withFrame(s.target, s.frame), s.value, s.label);
+        else if (s.type === 'check') await this.check(withFrame(s.target, s.frame), s.checked, s.label);
+        else if (s.type === 'chooseOption') await this.chooseOption(withFrame(s.target, s.frame), withFrame(s.option, s.frame), s.options || {});
+        else if (s.type === 'pressKey') await this.pressKey(withFrame(s.target, s.frame), s.key, s.options || {});
+        else if (s.type === 'hover') await this.hover(withFrame(s.target, s.frame), s.label);
         else if (s.type === 'unhover') await this.unhover(s.label);
-        else if (s.type === 'dragTo') await this.dragTo(s.target, s.destination, s.options || {});
-        else if (s.type === 'waitFor') await this.waitFor(s.target, s.options || {});
-        else if (s.type === 'custom') await this.step(s.target, s.action, s.label);
+        else if (s.type === 'dragTo') await this.dragTo(withFrame(s.target, s.frame), withFrame(s.destination, s.frame), s.options || {});
+        else if (s.type === 'waitFor') await this.waitFor(withFrame(s.target, s.frame), s.options || {});
+        else if (s.type === 'custom') await this.step(withFrame(s.target, s.frame), s.action, s.label);
       }
     } catch (err) {
       if (err instanceof PagePilotStopped) return; // intentionally stopped, not a failure

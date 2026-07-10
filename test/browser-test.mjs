@@ -278,6 +278,38 @@ async function main() {
     await page.close();
   }
 
+  console.log('=== NEW: duplicate ids are disambiguated by position ===');
+  {
+    const page = await freshPage();
+    await page.locator('#dup-btn').nth(1).click(); // the second of the three duplicates
+    const steps = await stopAndGetSteps(page);
+    const step = steps.find((s) => s.type === 'click');
+    check('target is an object with an index, not a bare #id string', typeof step.target === 'object' && step.target.index === 1);
+    check('selector matches all three duplicates', step.target.selector === '[id="dup-btn"]');
+    check('marked fragile (duplicate ids are inherently a markup smell)', step.fragile === true);
+    await page.close();
+  }
+
+  console.log('=== NEW: duplicate-id round trip actually clicks the correct one on replay ===');
+  {
+    const page = await freshPage();
+    await page.locator('#dup-btn').nth(2).click(); // the THIRD duplicate specifically
+    const steps = await stopAndGetSteps(page);
+
+    const clicked = await page.evaluate(async (recordedSteps) => {
+      const buttons = document.querySelectorAll('#dup-btn');
+      let clickedText = null;
+      buttons.forEach((b) => b.addEventListener('click', () => { clickedText = b.textContent; }));
+      const { PagePilot } = await import('/page-pilot.js');
+      const cursor = new PagePilot({ moveDuration: 4, clickPause: 4 });
+      await cursor.run(recordedSteps);
+      cursor.destroy();
+      return clickedText;
+    }, steps);
+    check('replay clicks the exact duplicate that was recorded (the third one)', clicked === 'Third duplicate');
+    await page.close();
+  }
+
   console.log('=== SECURITY: password fields are never recorded ===');
   {
     const page = await freshPage();
@@ -337,11 +369,11 @@ async function main() {
 
     const typeStep = steps.find((s) => s.type === 'type' && s.text === 'Hello iframe');
     check('captures typing inside the iframe', !!typeStep);
-    check('typing step carries a frame marker', typeStep?.frame === '#test-iframe');
+    check('typing step carries a frame marker', typeStep?.target?.frame === '#test-iframe');
 
-    const clickStep = steps.find((s) => s.type === 'click' && s.target === '#iframe-btn');
+    const clickStep = steps.find((s) => s.type === 'click' && s.target?.selector === '#iframe-btn');
     check('captures a click inside the iframe', !!clickStep);
-    check('click step carries a frame marker', clickStep?.frame === '#test-iframe');
+    check('click step carries a frame marker', clickStep?.target?.frame === '#test-iframe');
     await page.close();
   }
 

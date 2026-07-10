@@ -3,6 +3,30 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — Duplicate-id disambiguation
+
+### Added
+- `generateSelector()` now handles duplicate `id` attributes (invalid HTML,
+  but common on real, messier sites) instead of just discarding the id and
+  falling all the way back to a deep structural path once it's found not to
+  be unique. It disambiguates among the elements sharing that id by
+  position, producing a `{ selector: '[id="..."]', index: N, fragile: true }`
+  target — still marked fragile (a duplicate id is itself a markup smell
+  worth reviewing), but far shorter and more robust than a structural path.
+  Requires page-pilot 0.10.0+, which understands this target shape.
+- 5 new real-browser tests: the disambiguation itself, and a full record →
+  replay round trip confirming the exact duplicate that was clicked during
+  recording is the one that gets clicked again on replay.
+
+### Changed
+- Internally, every step-producing code path now goes through one shared
+  `_buildTarget(el, generated)` helper that decides whether a step's target
+  needs to be a plain selector string or a `{ selector, index?, frame? }`
+  object — previously frame-handling was duplicated across every call site;
+  this also fixed a latent inconsistency where a couple of paths could have
+  ended up attaching frame info differently. No change to the recorded
+  output's meaning, just how it's assembled internally.
+
 ## [0.3.2]
 
 ### Security
