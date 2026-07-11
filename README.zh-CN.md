@@ -2,7 +2,7 @@
 
 **中文** · [English](./README.md)
 
-**版本 0.5.2** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
+**版本 0.5.3** · 完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)
 
 录制页面上真实的用户操作，转换成 [page-pilot](https://github.com/jyy1082/page-pilot) 的 `run()` 能直接吃的步骤数组——录一遍，直接能回放，不用手写选择器。
 
