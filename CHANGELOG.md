@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.2]
+
+### Documentation
+- Synced vendored page-pilot.js (used by this repo's own test suite) to
+  0.13.0, which adds `waitForFrameReload()` — waits for a same-origin
+  iframe's own content to actually reload, fixing a race where the step
+  right after a click that triggers an iframe reload can otherwise run
+  before that reload has even started, hitting stale content. No change to
+  this package's own code.
+
 ## [0.5.1]
 
 ### Documentation
