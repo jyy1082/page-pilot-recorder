@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.5]
+
+### Documentation
+- Synced vendored page-pilot.js (used by this repo's own test suite) to
+  0.16.0, which adds `verifyClickable` — before every click, confirms the
+  target is actually the topmost element at its own position, catching
+  clicks that would otherwise silently go "through" a modal backdrop/
+  overlay a real mouse couldn't reach. No change to this package's own
+  code.
+
 ## [0.5.4]
 
 ### Documentation
